@@ -1,7 +1,10 @@
 name: Tes
 
 on:
+  # push hanya ke main (mis. setelah PR digabung); semua PR tetap diuji lewat
+  # pull_request, sehingga commit di branch PR tidak memicu job ganda.
   push:
+    branches: [main]
   pull_request:
 
 permissions:

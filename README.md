@@ -27,9 +27,10 @@
 - 🤝 **Tata Kelola Penyaluran & Kas Dana**:
   - Rasio penyaluran terhadap penghimpunan, sisa saldo kas, serta batas wajar bagian amil (*PSAK 109*).
 - 🔮 **Proyeksi Penerimaan 12 Bulan**:
-  - **Metode dipilih lewat backtest**: rata-rata bergerak, tren linier, naif musiman, tren + faktor musiman, tren + penanda Ramadan/Idulfitri (kalender Hijriah), dan *Holt-Winters* diuji pada bulan uji yang sama; MAPE terkecil yang dipakai.
-  - Metode terpilih, MAPE-nya, dan **tabel perbandingan semua metode** tampil di UI, PDF, dan Excel. Peringatan muncul bila semua MAPE > 50% atau bila statsmodels tidak tersedia.
-  - Interval ~95%; jika data terlalu pendek untuk backtest, MAPE ditampilkan "tidak tersedia".
+  - **Metode dipilih lewat backtest bergulir** (hingga 12 titik awal, horizon 6 bulan): rata-rata bergerak, tren linier, naif musiman, tren + faktor musiman, tren + penanda Ramadan/Idulfitri (kalender Hijriah), dan *Holt-Winters*. Peringkat memakai rata-rata MAPE pada jendela yang diuji semua metode.
+  - MAPE yang tampil = **rata-rata lintas titik awal** metode terpilih, beserta SD dan rentangnya. **Tabel perbandingan** (rata-rata, terburuk, jumlah jendela, status) tampil di UI, PDF, dan Excel.
+  - Peringatan bila MAPE terpilih > 50%, bila metode gagal di > 1/3 titik awal ("tidak andal"), bila statsmodels tidak tersedia, dan catatan bila pilihan metode tidak stabil.
+  - **Selang 80% dari galat backtest** (bukan residual); "tidak tersedia" bila galat backtest kurang dari 10.
 - 📑 **Ekspor Laporan Resmi**:
   - **Laporan Eksekutif PDF**: Siap cetak, memuat grafik tren bulanan, komposisi jenis dana, proyeksi, serta catatan metode & asumsi.
   - **Berkas Excel Multi-Sheet**: Berisi data bersih, ringkasan KPI, segmentasi RFM, dan log pembersihan.
@@ -145,7 +146,8 @@ Zakat/
 │   ├── create_superadmin.py    # CLI pembuatan Super Administrator
 │   ├── check_health.py         # Skrip healthcheck
 │   ├── validate_config.py      # Tolak start jika konfigurasi production tidak aman
-│   └── bandingkan_metode.py    # Tabel MAPE backtest per metode untuk data contoh
+│   ├── bandingkan_metode.py    # Tabel MAPE backtest bergulir per metode
+│   └── ukur_waktu_peramalan.py # Ukur waktu peramalan (36/120 bulan)
 ├── src/
 │   ├── config.py               # Pengaturan aplikasi
 │   ├── database.py             # Koneksi engine SQLAlchemy
@@ -156,7 +158,7 @@ Zakat/
 │   ├── analysis.py             # Mesin analisis statistik & KPI
 │   ├── rfm.py                  # Segmentasi RFM & Kurva Lorenz
 │   ├── pipeline.py             # Muat -> validasi -> bersihkan (pesan error ramah)
-│   ├── forecasting.py          # Peramalan: pemilihan metode lewat backtest MAPE
+│   ├── forecasting.py          # Peramalan: backtest bergulir, pemilihan & selang
 │   ├── kalender_hijriah.py     # Perkiraan Ramadan/Idulfitri 2015-2030 (fitur musiman)
 │   ├── waktu.py                # utc_now() terpusat
 │   ├── charts.py               # Visualisasi interaktif Plotly
@@ -211,9 +213,9 @@ dan `data/sample/data_contoh.xlsx` dibuat dari 2000. Hasil MAPE berbeda untuk ti
 
 Reproduksi: `python scripts/bandingkan_metode.py` (lihat juga `--transaksi 1500`).
 
-### Hasil setelah pemilihan metode berbasis backtest
+### Hasil PR #2: satu jendela uji (digantikan backtest bergulir, lihat di bawah)
 
-Tabel akhir (30 bulan latih, 6 bulan uji Jul–Des 2024; semua kandidat diuji pada bulan yang sama):
+Tabel PR #2 (30 bulan latih, 6 bulan uji Jul–Des 2024; satu jendela):
 
 | Metode | Data bawaan (5000 transaksi) | `data_contoh.xlsx` (2000 transaksi) |
 |---|---|---|
@@ -224,8 +226,56 @@ Tabel akhir (30 bulan latih, 6 bulan uji Jul–Des 2024; semua kandidat diuji pa
 | Tren linier + penanda Ramadan/Idulfitri | 40,68% | **51,21% (terpilih)** |
 | Holt-Winters (statsmodels) | 72,91% | 153,05% |
 
-Pada `data_contoh.xlsx` semua MAPE > 50%, sehingga aplikasi menampilkan peringatan bahwa proyeksi belum dapat diandalkan.
-Tanpa statsmodels, Holt-Winters tercatat "tidak tersedia" (tanpa angka) dan metode terpilih untuk data bawaan tetap sama.
+Satu jendela uji ternyata berisik: pemenangnya dipilih dari enam kandidat pada enam bulan saja, sehingga MAPE yang
+tampil terlalu optimistis (mis. 18,20% untuk rata-rata bergerak, padahal rata-ratanya di 12 jendela 37,97%).
+
+### Hasil backtest bergulir (versi sekarang)
+
+36 bulan data, horizon 6 bulan, titik awal = bulan latih 19–30 (12 jendela; Holt-Winters 24–30 karena butuh
+24 bulan latih). "Bersama" = rata-rata pada 7 jendela (bulan latih 24–30) yang diuji semua metode; kolom inilah
+dasar peringkat. MAPE dalam persen. Reproduksi: `python scripts/bandingkan_metode.py [--transaksi 2000 | --berkas data/sample/data_contoh.xlsx]`.
+
+**Data bawaan (5000 transaksi)** — terpilih: **tren linier sederhana, 26,86%** (SD 5,61; rentang 18,44–37,15%)
+
+| Metode | Rata-rata | Median | Terburuk | SD | Bersama | Jendela |
+|---|---|---|---|---|---|---|
+| Rata-rata bergerak 3 bulan | 37,97 | 32,04 | 78,98 | 17,48 | 30,77 | 12 |
+| **Tren linier sederhana** | **26,86** | 26,57 | 37,15 | 5,61 | **26,65** | 12 |
+| Naif musiman | 45,76 | 43,91 | 63,78 | 10,61 | 50,60 | 12 |
+| Tren linier + faktor musiman | 39,47 | 40,46 | 57,23 | 10,38 | 46,23 | 12 |
+| Tren linier + penanda Ramadan | 33,16 | 34,21 | 46,23 | 8,67 | 38,98 | 12 |
+| Holt-Winters | 61,51 | 67,76 | 72,91 | 12,87 | 61,51 | 7 |
+
+Catatan stabilitas muncul: pada 7 jendela bersama, tren linier hanya 4,11 poin lebih baik dari rata-rata bergerak
+dan unggul di 3 dari 7 jendela.
+
+**Data 2000 transaksi** dan **`data/sample/data_contoh.xlsx`** (identik: sheet penghimpunan dibuat dari biji acak dan
+jumlah transaksi yang sama) — terpilih: **tren linier sederhana, 98,76%** (SD 39,62; rentang 45,11–180,34%),
+dengan peringatan bahwa proyeksi belum dapat diandalkan (> 50%) dan catatan pilihan tidak stabil.
+
+| Metode | Rata-rata | Median | Terburuk | SD | Bersama | Jendela |
+|---|---|---|---|---|---|---|
+| Rata-rata bergerak 3 bulan | 119,31 | 76,66 | 236,65 | 79,91 | 90,65 | 12 |
+| **Tren linier sederhana** | **98,76** | 91,35 | 180,34 | 39,62 | **71,50** | 12 |
+| Naif musiman | 170,72 | 141,61 | 249,23 | 63,91 | 121,70 | 12 |
+| Tren linier + faktor musiman | 145,89 | 95,12 | 271,82 | 89,61 | 75,43 | 12 |
+| Tren linier + penanda Ramadan | 123,65 | 133,72 | 192,33 | 51,44 | 102,17 | 12 |
+| Holt-Winters | 82,59 | 72,29 | 153,05 | 33,91 | 82,59 | 7 |
+
+**Mengapa peringkat memakai jendela bersama:** bila rata-rata masing-masing metode dibandingkan langsung, Holt-Winters
+"menang" di data 2000 transaksi (82,59%) hanya karena ia dinilai pada 7 jendela terbaru yang lebih mudah. Pada 7 jendela
+yang sama, tren linier lebih baik (71,50% vs 82,59%). Peringkat pada jendela bersama menghapus bias itu; MAPE yang
+ditampilkan tetap rata-rata seluruh jendela metode terpilih.
+
+Angka acuan awal di permintaan (tren linier 26,07%, rata-rata bergerak 28,60%; data 2000: tren linier 66,25%, Ramadan
+73,38%) tidak sama persis dengan hasil di atas, kemungkinan karena pilihan titik awal/horizon yang berbeda; kode tidak
+disetel untuk mencocokkannya.
+
+Tanpa statsmodels, Holt-Winters tercatat "tidak tersedia" tanpa angka; jendela bersama 5 metode lainnya menjadi 12 dan
+metode terpilih untuk data bawaan tetap tren linier (26,86%).
+
+**Waktu hitung** (`python scripts/ukur_waktu_peramalan.py`, median 5 ulangan): 36 bulan **0,34 detik**, 120 bulan
+**0,81 detik** (target < 15 detik). Holt-Winters mendominasi; tanpa statsmodels 0,03–0,05 detik. Tidak perlu cache.
 
 ---
 
@@ -241,25 +291,41 @@ Asumsi yang diambil selama perbaikan rilis (silakan koreksi bila tidak sesuai ke
 3. **Pembersihan**: baris dengan `jumlah` teks/nol/negatif dan tanggal tidak valid dibuang dan dicatat di log;
    duplikat persis dihapus; outlier (IQR × 3) tetap dihitung dalam total. Total di KPI = jumlah `jumlah` setelah pembersihan
    (diverifikasi otomatis terhadap perhitungan pandas langsung di `tests/test_e2e.py`).
-4. **Peramalan — pemilihan lewat backtest**: jumlah bulan uji = min(6, n − 3); backtest dilakukan bila ada ≥ 3 bulan uji
-   (data ≥ 6 bulan). Semua kandidat diuji pada bulan uji yang **sama**, dan model hanya menerima bulan latih (diuji
-   dengan uji mutasi). Kandidat dengan MAPE terkecil dipilih lalu dilatih ulang pada seluruh data; bila MAPE sama,
-   dipilih yang lebih sederhana (urutan: rata-rata bergerak, tren linier, naif musiman, tren + musiman, tren + Ramadan,
-   Holt-Winters). Data 3–5 bulan: rata-rata bergerak dengan MAPE "tidak tersedia".
+4. **Peramalan — backtest bergulir (rolling origin)**: untuk tiap titik awal t, metode dilatih hanya pada y[:t] dan
+   memprediksi y[t:t+H] (diuji dengan uji mutasi: dua cara kebocoran sengaja, keduanya tertangkap tes).
+   - **Horizon H = 6 bulan**: sama dengan jendela PR #2 dan setengah dari horizon proyeksi 12 bulan; cukup panjang
+     untuk menilai proyeksi jangka menengah, cukup pendek agar masih ada banyak titik awal pada data 3 tahun.
+     Untuk data pendek H diperpendek menjadi min(6, n − 4), minimal 3; data < 7 bulan: tanpa backtest
+     (rata-rata bergerak, MAPE "tidak tersedia").
+   - **Titik awal: maksimal 12 terbaru, langkah 1 bulan**, hanya yang horizon penuhnya tersedia (t + H ≤ n). Dua belas
+     jendela mencakup satu siklus tahunan penuh (setiap bulan kalender, termasuk Ramadan, pernah menjadi awal horizon),
+     dan menjaga waktu hitung tetap kecil; jendela lama kurang relevan dengan pola terbaru.
+   - Syarat minimal data latih tiap metode berlaku per titik awal; metode dengan < 2 titik awal valid tidak diuji.
+   - **Peringkat**: rata-rata MAPE pada *jendela bersama* (titik awal yang diuji semua metode yang andal); bila jendela
+     bersama < 2, dipakai rata-rata masing-masing. Pemecah seri: urutan kesederhanaan (rata-rata bergerak, tren linier,
+     naif musiman, tren + musiman, tren + Ramadan, Holt-Winters). Metode terpilih dilatih ulang pada seluruh data.
+     *Penyimpangan dari permintaan:* permintaan menyebut "rata-rata MAPE terkecil lintas titik awal"; dipakai jendela
+     bersama karena rata-rata pada jendela berbeda terbukti bias (lihat bagian hasil di atas).
+   - **Tidak andal**: metode yang gagal (mis. tidak konvergen) di lebih dari 1/3 titik awal yang dicoba ditandai
+     "tidak andal" dan tidak dapat terpilih; statistik jendela yang berhasil tetap ditampilkan.
+   - **Tidak stabil**: catatan muncul bila |selisih rata-rata MAPE| dua metode teratas pada jendela dasar peringkat
+     < simpangan baku selisih per jendela (berpasangan).
    Syarat data latih minimum: rata-rata bergerak & tren linier 3 bulan; tren + musiman, naif musiman, dan tren + Ramadan
    12 bulan (naif musiman hanya ikut bila data ≥ 24 bulan); Holt-Winters 24 bulan latih (praktis data ≥ 30 bulan).
-5. **MAPE**: bulan dengan nilai aktual 0 dikecualikan; nilai dilaporkan apa adanya (bisa > 50%). Bila semua kandidat
-   > 50%, muncul peringatan bahwa proyeksi belum dapat diandalkan. Holt-Winters yang memberi `ConvergenceWarning`
-   atau gagal diimpor dicatat "tidak tersedia" beserta alasannya, dan tidak ikut dipilih.
-   **Keterbatasan**: backtest hanya memakai satu jendela uji (bulan terakhir). Bila jendela itu tidak berisi Ramadan
-   (seperti data contoh: Jul–Des 2024), metode musiman/Ramadan dinilai di bulan biasa saja, sehingga keunggulannya
-   di bulan Ramadan tidak terukur.
+5. **MAPE**: per jendela = rata-rata |aktual − prediksi| / aktual pada H bulan (bulan dengan aktual 0 dikecualikan;
+   jendela dengan semua aktual 0 dilewati). Yang ditampilkan = rata-rata seluruh jendela metode terpilih, beserta SD
+   (ddof=1) dan rentang; nilai apa adanya (bisa > 50%). Bila MAPE terpilih > 50%, muncul peringatan bahwa proyeksi
+   belum dapat diandalkan. Holt-Winters yang gagal diimpor dicatat "tidak tersedia"; `ConvergenceWarning` dihitung
+   sebagai kegagalan pada titik awal itu.
 5a. **Penanda Ramadan**: tanggal 1 Ramadan dan 1 Syawal 2015–2030 di `src/kalender_hijriah.py` adalah **perkiraan**
    (dapat berbeda 1–2 hari dari penetapan resmi). Fitur bulanan = porsi hari Ramadan dalam bulan itu (jumlah per
    Ramadan = 1) dan penanda bulan Idulfitri; model = regresi tren linier + kedua fitur. Kandidat dinonaktifkan dengan
    pesan jelas bila data atau 12 bulan proyeksi berada di luar 2015–2030, atau bila periode latih tidak berisi Ramadan.
-6. **Interval ~95%** = proyeksi ± 1,96 × simpangan baku residual in-sample; asumsi galat kira-kira normal dan pola historis berlanjut.
-   Interval ini cenderung terlalu sempit untuk horizon jauh.
+6. **Selang 80% dari galat backtest**: galat relatif (aktual − prediksi) / prediksi metode terpilih dikumpulkan dari
+   semua titik awal dan langkah horizon 1–H; selang = proyeksi × (1 + kuantil 10% dan 90%). Level 80% (bukan 95%)
+   dipilih karena dengan ~72 galat kuantil 2,5%/97,5% hanya ditentukan oleh 1–2 nilai ekstrem. Bila galat < 10 atau
+   tanpa backtest, selang "tidak tersedia" (kolom batas kosong) beserta alasannya. Batas bawah tidak pernah < 0.
+   Bulan proyeksi ke-7–12 memakai sebaran galat horizon 1–6, sehingga selang di sana kemungkinan terlalu sempit.
 7. **RFM**: bila banyak nilai recency/monetary kembar sehingga kuantil tidak unik, skor kuantil dihitung dari peringkat
    (sebelumnya kasus ini membuat aplikasi crash).
 8. **Grafik PDF** dirender dengan matplotlib (bukan plotly+kaleido) agar tidak memerlukan browser/Chrome di server.
@@ -274,7 +340,8 @@ Asumsi yang diambil selama perbaikan rilis (silakan koreksi bila tidak sesuai ke
 13. **File `.env`** dimuat otomatis oleh `src/config.py` (python-dotenv) **tanpa menimpa** variabel yang sudah ada di
     environment. Lokasi bisa diubah dengan `APP_ENV_FILE`; string kosong menonaktifkan pemuatan (dipakai di tes dan CI).
     `.dockerignore` mencegah `.env`, `*.db`, dan `uploads/` ikut masuk image Docker.
-14. **CI** (`.github/workflows/tests.yml`) menjalankan pytest di Python 3.11 dan 3.12 pada setiap push dan pull request,
+14. **CI** (`.github/workflows/tests.yml`) menjalankan pytest di Python 3.11 dan 3.12 pada setiap pull request dan pada
+    push ke `main` (push ke branch lain tidak memicu job ganda),
     dengan cache pip dan tanpa rahasia apa pun.
 
 ---

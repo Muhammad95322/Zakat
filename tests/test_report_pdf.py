@@ -128,3 +128,22 @@ def test_excel_mape_sama_dengan_rata_rata_metode_terpilih(analisis, n_bulan):
     ringkas = sh["Ringkasan Peramalan"].set_index("Butir")["Nilai"]
     assert float(ringkas["Rata-rata MAPE backtest bergulir (%)"]) == pytest.approx(meta["mape"])
     assert ringkas["Metode terpilih"] == meta["metode"]
+
+
+def test_versi_pustaka_di_pdf_dan_excel(analisis):
+    from src.report_excel import generate_excel_report
+    stats, trend, comp = analisis
+    fdf, meta = forecast_donations(trend["monthly"])
+    v = meta["lingkungan"]
+    pdf = generate_pdf_report("Lembaga Uji", stats, None, None, trend["monthly"], comp["jenis_dana"], fdf, meta)
+    _, teks = _teks_pdf(pdf)
+    teks = re.sub(r"\s+", " ", teks)
+    assert f"statsmodels {v['statsmodels']}" in teks and f"numpy {v['numpy']}" in teks
+    assert "Lingkungan & konvergensi" in teks
+    xlsx = generate_excel_report(pd.DataFrame({"jumlah": [1.0]}), stats, None, fdf, None, meta)
+    ringkas = pd.read_excel(io.BytesIO(xlsx), sheet_name="Ringkasan Peramalan").set_index("Butir")["Nilai"]
+    assert ringkas["Versi statsmodels"] == v["statsmodels"]
+    assert ringkas["Versi numpy"] == v["numpy"]
+    assert f"numpy {v['numpy']}" in ringkas["Catatan metode (lingkungan & konvergensi)"]
+    proyeksi = pd.read_excel(io.BytesIO(xlsx), sheet_name="Proyeksi Dana")
+    assert "status_selang" in proyeksi.columns

@@ -525,3 +525,142 @@ class TestKeadilanJendela:
         b = self._b("rata_bergerak", {1: 10, 2: 10})
         urut, _ = fc.urutkan_kandidat([a, b])
         assert urut[0]["kode"] == "rata_bergerak"
+
+
+def _kandidat_galat_terkendali(kode="tren_linier"):
+    """Kandidat palsu: data konstan 100; pada langkah h prediksi = 100 / (1 + s*c_h),
+    c_h = 0.05*h, s = +1/-1 bergantian menurut panjang data latih. Galat relatif
+    (aktual - prediksi)/prediksi = s*c_h persis, sehingga kuantil per langkah bisa dihitung manual."""
+    asli = fc._METODE[kode]
+
+    def f(y, tgl, tgl_depan):
+        s = 1.0 if len(y) % 2 == 0 else -1.0
+        c = 0.05 * np.arange(1, len(tgl_depan) + 1)
+        return 100.0 / (1 + s * c), np.zeros(len(y))
+
+    return fc.Kandidat(asli.kode, asli.label, f, 3)
+
+
+class TestSelangPerHorizonManual:
+    def test_galat_per_langkah_dihitung_manual(self):
+        n = 40
+        y = np.full(n, 100.0)
+        tgl = pd.date_range("2021-01-01", periods=n, freq="MS")
+        galat = fc.galat_per_horizon(_kandidat_galat_terkendali(), y, tgl, 12)
+        for h in range(1, 13):
+            g = np.array(galat[h])
+            assert len(g) == fc.MAKS_TITIK_AWAL                       # 12 titik awal terbaru per langkah
+            assert np.allclose(np.abs(g), 0.05 * h)                   # |galat| = c_h
+            assert (g > 0).sum() == (g < 0).sum() == 6                # bergantian
+        bawah, atas, rincian = fc.selang_per_horizon(np.full(12, 200.0), galat)
+        c = 0.05 * np.arange(1, 13)
+        assert np.allclose(bawah, 200 * (1 - c))                      # kuantil 10% = -c_h
+        assert np.allclose(atas, 200 * (1 + c))                       # kuantil 90% = +c_h
+        assert np.all(np.diff(atas - bawah) >= 0)                     # melebar untuk horizon lebih jauh
+        assert all(r["status"] == "tersedia" for r in rincian)
+
+    def test_ujung_ke_ujung_dengan_satu_kandidat(self, monkeypatch):
+        palsu = _kandidat_galat_terkendali()
+        monkeypatch.setattr(fc, "_KANDIDAT", [palsu])
+        monkeypatch.setattr(fc, "_METODE", {palsu.kode: palsu})
+        df, meta = forecast_donations(_dari_nilai([100.0] * 40))
+        c = 0.05 * np.arange(1, 13)
+        assert np.allclose(df["batas_bawah"], df["proyeksi"] * (1 - c))
+        assert np.allclose(df["batas_atas"], df["proyeksi"] * (1 + c))
+        assert (df["status_selang"] == "tersedia").all()
+        assert [r["n_galat"] for r in meta["selang_per_bulan"]] == [12] * 12
+
+    def test_batas_bawah_tidak_negatif_bila_galat_besar(self):
+        galat = {1: [-3.0, -2.0, -1.5, 0.5, 1.0, 2.0], 2: [-5.0] * 6}
+        bawah, atas, _ = fc.selang_per_horizon(np.array([100.0, 100.0]), galat)
+        assert (bawah >= 0).all() and (atas >= bawah).all()
+        assert bawah[1] == 0 and atas[1] == 0  # semua galat -500% -> selang [0, 0], bukan negatif
+
+    def test_status_per_langkah(self):
+        galat = {1: [0.1] * 6, 2: [0.1] * 5, 3: []}
+        bawah, atas, rincian = fc.selang_per_horizon(np.array([100.0, 100.0, 100.0]), galat)
+        assert [r["status"] for r in rincian] == [
+            "tersedia", "tidak tersedia: hanya 5 galat (butuh 6)", "di luar cakupan backtest"]
+        assert np.isfinite(bawah[0]) and np.isnan(bawah[1]) and np.isnan(bawah[2])
+
+
+class TestDiLuarCakupan:
+    def test_bulan_di_luar_cakupan_tanpa_selang_dan_catatan(self):
+        df, meta = forecast_donations(_dari_nilai([100 + 10 * i for i in range(12)]))
+        luar = df["status_selang"] == "di luar cakupan backtest"
+        assert luar.sum() == 3
+        assert df.loc[luar, ["batas_bawah", "batas_atas"]].isna().all().all()
+        assert "Bulan ke-10-12: di luar cakupan backtest" in meta["selang_keterangan"]
+        assert meta["selang_keterangan"] in meta["warning"]
+
+    def test_grafik_tidak_menggambar_pita_di_luar_cakupan(self):
+        from src.charts import chart_forecasting
+        data = _dari_nilai([100 + 10 * i for i in range(12)])
+        df, meta = forecast_donations(data)
+        fig = chart_forecasting(data, df, meta["selang_label"])
+        x_pita = {x for tr in fig.data if tr.legendgroup == "selang" or tr.hoverinfo == "skip" for x in tr.x}
+        tanpa = set(df.loc[df["status_selang"] != "tersedia", "periode"])
+        assert x_pita and not (x_pita & tanpa)
+
+
+class TestKegagalanSebagianDanJendelaBersama:
+    def test_tabel_dan_aturan_jendela_bersama(self, monkeypatch):
+        # tren linier gagal di titik awal 25 (1 dari 12: masih andal)
+        _pasang(monkeypatch, _gagal_di("tren_linier", {25}))
+        _, meta = forecast_donations(_bulanan(36))
+        lin = _baris(meta, "tren_linier")
+        assert lin["n_jendela"] == 11 and lin["n_gagal"] == 1 and lin["titik_gagal"] == [25]
+        assert lin["andal"] and lin["tersedia"]
+        assert "simulasi gagal konvergen pada t=25" in lin["alasan_gagal"][0]
+        tabel = tabel_perbandingan(meta)
+        baris = tabel[tabel["Metode"] == lin["metode"]].iloc[0]
+        assert baris["Jendela dinilai"] == 11 and baris["Gagal"] == 1   # dinilai, bukan dicoba
+        # aturan: titik awal 25 keluar dari jendela bersama untuk SEMUA metode
+        assert 25 not in meta["jendela_bersama"]
+        assert meta["jendela_dikeluarkan"][25] == [lin["metode"]]
+        # setiap titik yang dikeluarkan memang titik gagal suatu metode andal, dan tidak ada di jendela bersama
+        for t, metode in meta["jendela_dikeluarkan"].items():
+            assert t not in meta["jendela_bersama"]
+            for nama in metode:
+                b = next(x for x in meta["perbandingan"] if x["metode"] == nama)
+                assert t in b["titik_gagal"] and b["tersedia"]
+        for b in meta["perbandingan"]:
+            if b["tersedia"]:
+                harapan = np.mean([b["mape_per_jendela"][t] for t in meta["jendela_bersama"]])
+                assert b["mape_bersama"] == pytest.approx(round(harapan, 2))
+        # rata-rata yang ditampilkan per metode tetap memakai semua jendela yang dinilai
+        assert lin["mape"] == pytest.approx(round(np.mean(list(lin["mape_per_jendela"].values())), 2))
+        assert "dikeluarkan dari jendela bersama" in meta["dasar_pemilihan"]
+        assert "1 gagal" in fc.ringkasan_catatan_metode(meta)
+
+    def test_holt_winters_perilaku_tanpa_angka_persis(self):
+        pytest.importorskip("statsmodels")
+        _, meta = forecast_donations(_bulanan(36))
+        hw = _baris(meta, "holt_winters")
+        # Perilaku, bukan angka: jendela dinilai + gagal = jumlah titik awal yang dicoba (24..30)
+        assert hw["n_jendela"] + hw["n_gagal"] == 7
+        assert (len(hw["alasan_gagal"]) >= 1) == (hw["n_gagal"] > 0) and len(hw["alasan_gagal"]) <= 3
+        assert len(hw["titik_gagal"]) == hw["n_gagal"]
+        assert set(hw["titik_gagal"]).isdisjoint(hw["mape_per_jendela"])
+        if hw["mape"] is not None:
+            assert hw["mape"] not in ANGKA_KARANGAN_LAMA
+
+
+class TestVersiLingkungan:
+    def test_versi_tercatat_di_meta(self):
+        import numpy, pandas, platform
+        _, meta = forecast_donations(_bulanan(36))
+        v = meta["lingkungan"]
+        assert v["python"] == platform.python_version()
+        assert v["numpy"] == numpy.__version__ and v["pandas"] == pandas.__version__
+        assert set(v) == {"python", "numpy", "scipy", "pandas", "statsmodels"}
+        ringkas = fc.ringkasan_catatan_metode(meta)
+        assert f"numpy {numpy.__version__}" in ringkas and "statsmodels" in ringkas
+
+    def test_statsmodels_tidak_dapat_diimpor_tercatat(self, monkeypatch):
+        for mod in [m for m in sys.modules if m == "statsmodels" or m.startswith("statsmodels.")]:
+            monkeypatch.delitem(sys.modules, mod)
+        monkeypatch.setitem(sys.modules, "statsmodels", None)
+        _, meta = forecast_donations(_bulanan(36))
+        assert meta["lingkungan"]["statsmodels"] == "tidak dapat diimpor"
+        assert "statsmodels tidak dapat diimpor" in fc.ringkasan_catatan_metode(meta)

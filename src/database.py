@@ -1,4 +1,5 @@
 """Database engine, session factory, and initialization."""
+import os
 from contextlib import contextmanager
 
 from sqlalchemy import create_engine, event
@@ -33,7 +34,8 @@ if DATABASE_URL.startswith("sqlite"):
 engine = create_engine(
     DATABASE_URL,
     connect_args=_connect_args,
-    echo=settings.APP_ENV == "development",
+    # Log SQL memuat parameter (hash sandi, token, data donatur): hanya bila diminta eksplisit
+    echo=os.getenv("SQL_ECHO", "false").lower() == "true",
 )
 
 # Enable WAL mode for SQLite to improve concurrency

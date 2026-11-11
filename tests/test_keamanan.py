@@ -52,7 +52,7 @@ class TestT1TokenTidakDisimpanMentah:
     def test_tautan_memakai_app_base_url(self, db, admin_user, monkeypatch):
         monkeypatch.setattr(settings, "APP_BASE_URL", "https://zakat.contoh.id")
         keluaran, _ = _minta_reset(db, admin_user)
-        assert "https://zakat.contoh.id/?page=reset_password&token=" in keluaran
+        assert "https://zakat.contoh.id/?page=reset_password&amp;token=" in keluaran  # di-escape untuk HTML
         assert "localhost" not in keluaran
 
 
@@ -352,3 +352,98 @@ def test_ui_tim_tidak_crash_dan_sesi_nonaktif_keluar(tmp_path):
     assert "TIM_EXC=0" in out, out[-800:]
     assert "Admin Uji" in out and "Staf Uji" in out
     assert "SESI_NONAKTIF_HALAMAN=login" in out
+
+
+# ---------------------------------------------------------------------------
+# S4/S5/S6/S7/R5/R6: keluaran HTML, log SQL, batas berkas, konfigurasi
+# ---------------------------------------------------------------------------
+class TestS4EscapeHtml:
+    def test_template_email_di_escape(self):
+        from src.services.email_service import email_reset_password, email_undangan, email_verifikasi
+        jahat = '<img src=x onerror="alert(1)">'
+        for html_ in (email_verifikasi(jahat, "https://a/?x=1"), email_reset_password(jahat, "https://a/"),
+                      email_undangan(jahat, jahat, "https://a/")):
+            assert "<img" not in html_ and "&lt;img" in html_
+
+    def test_dashboard_escape(self):
+        import inspect
+        import src.pages.pg_dashboard as pd_
+        sumber = inspect.getsource(pd_)
+        assert "escape(user.get" in sumber and "escape(tenant.nama" in sumber
+
+
+def test_s5_sql_echo_mati_secara_bawaan():
+    from src.database import engine
+    assert engine.echo is False
+
+
+class TestS6R6Berkas:
+    @staticmethod
+    def _xlsx(n_sheet=1, baris=10, makro=False):
+        import zipfile
+        import pandas as pd
+        b = io.BytesIO()
+        with pd.ExcelWriter(b, engine="openpyxl") as w:
+            for i in range(n_sheet):
+                pd.DataFrame({"tanggal": ["2024-01-01"] * baris, "jumlah": [1] * baris}).to_excel(
+                    w, sheet_name=f"S{i}", index=False)
+        data = b.getvalue()
+        if makro:
+            b2 = io.BytesIO()
+            with zipfile.ZipFile(io.BytesIO(data)) as zin, zipfile.ZipFile(b2, "w") as zout:
+                for item in zin.infolist():
+                    zout.writestr(item, zin.read(item.filename))
+                zout.writestr("xl/vbaProject.bin", b"\x00" * 100)
+            data = b2.getvalue()
+        return data
+
+    def test_xlsx_wajar_lolos(self):
+        from src.middleware.security import validasi_file_upload
+        assert validasi_file_upload("a.xlsx", self._xlsx()) == (True, "")
+
+    def test_makro_ditolak(self):
+        from src.middleware.security import validasi_file_upload
+        ok, pesan = validasi_file_upload("a.xlsx", self._xlsx(makro=True))
+        assert ok is False and "makro" in pesan
+
+    def test_terlalu_banyak_sheet(self, monkeypatch):
+        from src.middleware.security import validasi_file_upload
+        monkeypatch.setattr(settings, "MAX_SHEET", 3)
+        ok, pesan = validasi_file_upload("a.xlsx", self._xlsx(n_sheet=5))
+        assert ok is False and "sheet" in pesan
+
+    def test_bom_zip_ditolak_sebelum_parsing(self):
+        import zipfile
+        from src.middleware.security import validasi_file_upload
+        b = io.BytesIO()
+        with zipfile.ZipFile(b, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("[Content_Types].xml", "<x/>")
+            z.writestr("xl/worksheets/sheet1.xml", b"0" * (50 * 1024 * 1024))  # 50 MB nol -> rasio ~1000x
+        data = b.getvalue()
+        assert len(data) < 1024 * 1024
+        ok, pesan = validasi_file_upload("bom.xlsx", data)
+        assert ok is False and "rasio" in pesan
+
+    def test_batas_dekompresi_total(self, monkeypatch):
+        from src.middleware.security import validasi_file_upload
+        monkeypatch.setattr(settings, "MAX_DEKOMPRESI_MB", 0)
+        ok, pesan = validasi_file_upload("a.xlsx", self._xlsx(baris=2000))
+        assert ok is False and "dekompresi" in pesan
+
+    def test_batas_baris(self, monkeypatch):
+        from src.loader import DataFileError, load_file
+        monkeypatch.setattr(settings, "MAX_BARIS", 100)
+        with pytest.raises(DataFileError, match="lebih dari 100 baris"):
+            load_file(self._xlsx(baris=150), "a.xlsx")
+        with pytest.raises(DataFileError, match="lebih dari 100 baris"):
+            load_file(("tanggal,jumlah\n" + "2024-01-01,1\n" * 150).encode(), "a.csv")
+        assert len(load_file(self._xlsx(baris=100), "a.xlsx")["Penghimpunan"]) == 100
+
+
+def test_s7_r5_konfigurasi_streamlit():
+    import tomllib
+    cfg = tomllib.loads((_Path(__file__).parent.parent / ".streamlit" / "config.toml").read_text())
+    assert cfg["client"]["showErrorDetails"] == "none"
+    assert cfg["browser"]["gatherUsageStats"] is False
+    assert cfg["server"]["enableXsrfProtection"] is True
+    assert cfg["server"]["maxUploadSize"] == settings.MAX_UPLOAD_SIZE_MB

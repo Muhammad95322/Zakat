@@ -32,7 +32,36 @@ def validasi_file_upload(nama_file: str, konten: bytes) -> tuple[bool, str]:
             konten[:1000].decode("utf-8")
         except UnicodeDecodeError:
             return False, "File CSV harus berformat teks (UTF-8)."
-    
+
+    if ext == "xlsx":
+        return periksa_arsip_xlsx(konten)
+
+    return True, ""
+
+
+def periksa_arsip_xlsx(konten: bytes) -> tuple[bool, str]:
+    """Periksa daftar isi arsip xlsx SEBELUM diparsing: ukuran dekompresi, rasio, jumlah sheet, makro."""
+    import io
+    import zipfile
+
+    try:
+        arsip = zipfile.ZipFile(io.BytesIO(konten))
+        isi = arsip.infolist()
+    except (zipfile.BadZipFile, ValueError):
+        return False, "File Excel rusak atau bukan file .xlsx yang valid."
+    total = sum(i.file_size for i in isi)
+    if total > settings.MAX_DEKOMPRESI_MB * 1024 * 1024:
+        return False, (f"Isi file Excel terlalu besar setelah dekompresi ({total / 1e6:.0f} MB; "
+                       f"batas {settings.MAX_DEKOMPRESI_MB} MB).")
+    for i in isi:
+        if i.compress_size > 0 and i.file_size / i.compress_size > settings.MAX_RASIO_KOMPRESI and i.file_size > 1024 * 1024:
+            return False, "File Excel memiliki rasio kompresi tidak wajar (kemungkinan bom zip) dan ditolak."
+    nama = [i.filename.lower() for i in isi]
+    if any(n.endswith("vbaproject.bin") or n.endswith(".bin") and "vba" in n for n in nama):
+        return False, "File Excel berisi makro (VBA) dan ditolak. Simpan ulang sebagai .xlsx tanpa makro."
+    jumlah_sheet = sum(1 for n in nama if n.startswith("xl/worksheets/") and n.endswith(".xml"))
+    if jumlah_sheet > settings.MAX_SHEET:
+        return False, f"File Excel memiliki {jumlah_sheet} sheet (batas {settings.MAX_SHEET})."
     return True, ""
 
 

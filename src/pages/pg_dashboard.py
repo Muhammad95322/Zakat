@@ -15,8 +15,9 @@ def show():
         stats = get_tenant_stats(db, tenant_id) if tenant_id else {}
         uploads = get_uploads(db, tenant_id) if tenant_id else []
 
-    nama_user = user.get("nama_lengkap", "Pengguna") if user else "Pengguna"
-    nama_lembaga = tenant.nama if tenant else "Administrator Pusat"
+    from html import escape  # data pengguna masuk ke HTML (unsafe_allow_html) -> wajib di-escape
+    nama_user = escape(user.get("nama_lengkap", "Pengguna") if user else "Pengguna")
+    nama_lembaga = escape(tenant.nama if tenant else "Administrator Pusat")
 
     st.markdown(f"""
     <div style="background: linear-gradient(135deg, #0d9488 0%, #115e59 100%); padding: 25px; border-radius: 12px; color: white; margin-bottom: 25px;">

@@ -84,6 +84,16 @@ def validasi_kolom_wajib(df: pd.DataFrame, sheet_type: str = "Penghimpunan") -> 
         )
 
 
+def _batas_baris() -> int:
+    from src.config import settings
+    return settings.MAX_BARIS
+
+
+def _cek_baris(df: pd.DataFrame, nama: str) -> None:
+    if len(df) > _batas_baris():
+        raise DataFileError(f"{nama} memiliki lebih dari {_batas_baris():,} baris. Bagi berkas menjadi beberapa bagian.")
+
+
 def _sheet_kosong(df: pd.DataFrame) -> bool:
     return df is None or df.empty or df.dropna(how="all").empty
 
@@ -108,7 +118,7 @@ def load_file(file_content: bytes, filename: str) -> Dict[str, pd.DataFrame]:
         df = None
         for enc in ("utf-8", "latin-1"):
             try:
-                df = pd.read_csv(io.BytesIO(file_content), encoding=enc)
+                df = pd.read_csv(io.BytesIO(file_content), encoding=enc, nrows=_batas_baris() + 1)
                 break
             except UnicodeDecodeError:
                 continue
@@ -118,6 +128,7 @@ def load_file(file_content: bytes, filename: str) -> Dict[str, pd.DataFrame]:
                 raise DataFileError(f"Berkas CSV '{filename}' tidak dapat dibaca (format baris tidak konsisten): {e}")
         if df is None:
             raise DataFileError(f"Berkas CSV '{filename}' tidak dapat dibaca. Simpan ulang sebagai CSV UTF-8.")
+        _cek_baris(df, f"Berkas CSV '{filename}'")
         if _sheet_kosong(df):
             raise DataFileError(f"Berkas CSV '{filename}' tidak berisi baris data.")
         res["Penghimpunan"] = df
@@ -148,7 +159,11 @@ def load_file(file_content: bytes, filename: str) -> Dict[str, pd.DataFrame]:
 
     def _baca(sheet):
         try:
-            return pd.read_excel(excel_file, sheet_name=sheet)
+            df = pd.read_excel(excel_file, sheet_name=sheet, nrows=_batas_baris() + 1)
+            _cek_baris(df, f"Sheet '{sheet}'")
+            return df
+        except DataFileError:
+            raise
         except Exception as e:
             raise DataFileError(f"Sheet '{sheet}' pada berkas '{filename}' tidak dapat dibaca ({type(e).__name__}).")
 

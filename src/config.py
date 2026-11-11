@@ -83,6 +83,11 @@ class Settings:
     # Storage
     UPLOAD_DIR: Path = Path(os.getenv("UPLOAD_DIR", str(BASE_DIR / "uploads")))
     MAX_UPLOAD_SIZE_MB: int = int(os.getenv("MAX_UPLOAD_SIZE_MB", "50"))
+    # Batas isi berkas (cegah bom zip / DoS memori)
+    MAX_DEKOMPRESI_MB: int = int(os.getenv("MAX_DEKOMPRESI_MB", "300"))
+    MAX_RASIO_KOMPRESI: int = int(os.getenv("MAX_RASIO_KOMPRESI", "100"))
+    MAX_SHEET: int = int(os.getenv("MAX_SHEET", "20"))
+    MAX_BARIS: int = int(os.getenv("MAX_BARIS", "500000"))
 
     # Security
     JWT_ACCESS_EXPIRE_HOURS: int = int(os.getenv("JWT_ACCESS_EXPIRE_HOURS", "8"))

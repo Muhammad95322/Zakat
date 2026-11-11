@@ -123,7 +123,8 @@ def test_excel_mape_sama_dengan_rata_rata_metode_terpilih(analisis, n_bulan):
     terpilih = next(b for b in meta["perbandingan"] if b["terpilih"])
     rata = float(np.mean(list(terpilih["mape_per_jendela"].values())))
     assert float(baris["Rata-rata MAPE (%)"].iloc[0]) == pytest.approx(rata, abs=0.006)
-    assert int(baris["Jendela"].iloc[0]) == terpilih["n_jendela"]
+    assert int(baris["Jendela dinilai"].iloc[0]) == terpilih["n_jendela"]
+    assert int(baris["Gagal"].iloc[0]) == terpilih["n_gagal"]
     ringkas = sh["Ringkasan Peramalan"].set_index("Butir")["Nilai"]
     assert float(ringkas["Rata-rata MAPE backtest bergulir (%)"]) == pytest.approx(meta["mape"])
     assert ringkas["Metode terpilih"] == meta["metode"]

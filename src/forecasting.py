@@ -56,6 +56,20 @@ class _TidakMemenuhiSyarat(Exception):
     """Kandidat tidak dapat dipakai untuk data ini (alasan dijelaskan di pesan)."""
 
 
+def versi_lingkungan() -> Dict[str, str]:
+    """Versi Python dan pustaka numerik yang memengaruhi angka peramalan."""
+    import platform
+
+    versi = {"python": platform.python_version()}
+    for nama in ("numpy", "scipy", "pandas", "statsmodels"):
+        try:
+            modul = __import__(nama)
+            versi[nama] = str(getattr(modul, "__version__", "?"))
+        except Exception:
+            versi[nama] = "tidak dapat diimpor"
+    return versi
+
+
 def format_mape(meta: Optional[Dict[str, Any]]) -> str:
     """Format nilai MAPE untuk UI/laporan; "tidak tersedia" jika None."""
     if not meta or meta.get("mape") is None:
@@ -277,6 +291,9 @@ def _uji_kandidat(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex, titi
         "mape_per_jendela": {},
         "n_jendela": 0,
         "n_gagal": 0,
+        "n_dilewati": 0,
+        "titik_gagal": [],
+        "alasan_gagal": [],
         "status": "",
         "tersedia": False,
         "andal": True,
@@ -311,6 +328,7 @@ def _uji_kandidat(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex, titi
             return baris
         except _ModelGagal as exc:
             baris["n_gagal"] += 1
+            baris["titik_gagal"].append(t)
             alasan_gagal.append(str(exc))
             continue
         except _TidakMemenuhiSyarat:
@@ -318,7 +336,8 @@ def _uji_kandidat(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex, titi
         aktual = y[t:t + h]
         mape = _hitung_mape(aktual, pred)
         if mape is None:
-            continue  # semua aktual 0: MAPE tak terdefinisi untuk jendela ini
+            baris["n_dilewati"] += 1
+            continue  # semua aktual 0: MAPE tak terdefinisi untuk jendela ini (bukan kegagalan)
         baris["mape_per_jendela"][t] = round(mape, 2)
         mask = pred > 0
         galat_relatif.extend(((aktual[mask] - pred[mask]) / pred[mask]).tolist())
@@ -327,6 +346,7 @@ def _uji_kandidat(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex, titi
     baris["n_jendela"] = len(baris["titik_awal"])
     baris["_galat_relatif"] = galat_relatif
     baris["_alasan_gagal"] = alasan_gagal
+    baris["alasan_gagal"] = list(dict.fromkeys(alasan_gagal))[:3]  # alasan unik (maks 3)
     baris.update(_ringkas(list(baris["mape_per_jendela"].values())))
     n_coba = baris["n_jendela"] + baris["n_gagal"]
     if baris["n_gagal"] and baris["n_gagal"] > BATAS_PORSI_GAGAL * n_coba:
@@ -385,6 +405,8 @@ def _hasil_kosong(n: int) -> Tuple[pd.DataFrame, Dict[str, Any]]:
         "peringatan_keandalan": None,
         "catatan_stabilitas": None,
         "jendela_bersama": [],
+        "jendela_dikeluarkan": {},
+        "lingkungan": versi_lingkungan(),
         "selang_tersedia": False,
         "selang_label": None,
         "selang_keterangan": "Selang tidak tersedia: tidak ada peramalan.",
@@ -448,6 +470,54 @@ def urutkan_kandidat(tersedia: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any
     kunci = (lambda b: (b["mape_bersama"], _urutan(b["kode"]))) if bersama else (
         lambda b: (b["mape"], _urutan(b["kode"])))
     return sorted(tersedia, key=kunci), bersama
+
+
+def jendela_dikeluarkan_karena_gagal(tersedia: List[Dict[str, Any]], bersama: List[int]) -> Dict[int, List[str]]:
+    """Titik awal yang keluar dari jendela bersama karena metode andal GAGAL di sana.
+
+    Aturan (sama untuk semua metode): jendela bersama = titik awal tempat SEMUA
+    metode andal berhasil dinilai. Bila satu metode gagal di titik awal t, t
+    dikeluarkan dari jendela bersama untuk SEMUA metode (dasar peringkat), tetapi
+    rata-rata MAPE yang ditampilkan per metode tetap memakai seluruh jendela yang
+    berhasil ia nilai.
+    """
+    hasil: Dict[int, List[str]] = {}
+    for b in tersedia:
+        for t in b.get("titik_gagal", []):
+            if t not in bersama:
+                hasil.setdefault(t, []).append(b["metode"])
+    return dict(sorted(hasil.items()))
+
+
+def ringkasan_catatan_metode(meta: Optional[Dict[str, Any]]) -> str:
+    """Satu paragraf singkat: versi pustaka dan kegagalan konvergensi per metode."""
+    meta = meta or {}
+    v = meta.get("lingkungan") or {}
+    bagian = []
+    if v:
+        bagian.append(
+            f"Dihitung dengan Python {v.get('python')}, statsmodels {v.get('statsmodels')}, "
+            f"numpy {v.get('numpy')}, scipy {v.get('scipy')}, pandas {v.get('pandas')}."
+        )
+    for b in meta.get("perbandingan") or []:
+        if b.get("n_gagal"):
+            coba = b["n_jendela"] + b["n_gagal"]
+            alasan = f" ({b['alasan_gagal'][0]})" if b.get("alasan_gagal") else ""
+            bagian.append(
+                f"{b['metode']}: {b['n_jendela']} dari {coba} titik awal dinilai, "
+                f"{b['n_gagal']} gagal{alasan}."
+            )
+        elif b["status"].startswith("tidak tersedia"):
+            bagian.append(f"{b['metode']} {b['status']}.")
+    keluar = meta.get("jendela_dikeluarkan") or {}
+    if keluar:
+        bagian.append(
+            "Titik awal (bulan latih) yang dikeluarkan dari jendela bersama untuk semua metode karena ada metode "
+            "yang gagal: " + "; ".join(f"{t} ({', '.join(m)})" for t, m in keluar.items()) + "."
+        )
+    if not any(b.get("n_gagal") for b in meta.get("perbandingan") or []) and meta.get("perbandingan"):
+        bagian.append("Tidak ada kegagalan konvergensi pada backtest.")
+    return " ".join(bagian)
 
 
 def cek_stabilitas(pertama: Dict[str, Any], kedua: Dict[str, Any],
@@ -515,6 +585,7 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
 
     perbandingan, h = bandingkan_metode(y, tgl, tgl_depan)
     tersedia, jendela_bersama = urutkan_kandidat([b for b in perbandingan if b["tersedia"]])
+    jendela_keluar = jendela_dikeluarkan_karena_gagal(tersedia, jendela_bersama) if jendela_bersama else {}
     gangguan = [b for b in perbandingan if b.get("gangguan")]
 
     catatan: List[str] = []
@@ -552,6 +623,11 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
             f"(bulan latih {terpilih['titik_awal'][0]}-{terpilih['titik_awal'][-1]}), "
             f"masing-masing memprediksi {h} bulan ke depan."
         )
+        if terpilih["n_gagal"]:
+            mape_ket += (
+                f" {terpilih['n_gagal']} titik awal lain gagal dilatih dan tidak ikut dihitung "
+                f"({terpilih['n_jendela']} dinilai dari {terpilih['n_jendela'] + terpilih['n_gagal']} dicoba)."
+            )
         lain = [b for b in tersedia if b is not terpilih]
         if jendela_bersama:
             dasar = (
@@ -563,8 +639,13 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
                 dasar += "; pembanding: " + ", ".join(f"{b['metode']} {b['mape_bersama']:.2f}%" for b in lain)
             dasar += (
                 f". MAPE yang ditampilkan ({mape:.2f}%) adalah rata-rata seluruh {terpilih['n_jendela']} "
-                f"jendela metode terpilih."
+                f"jendela yang dinilai untuk metode terpilih."
             )
+            if jendela_keluar:
+                dasar += (
+                    " Titik awal " + ", ".join(str(t) for t in jendela_keluar)
+                    + " dikeluarkan dari jendela bersama untuk semua metode karena ada metode yang gagal di sana."
+                )
         else:
             dasar = (
                 f"Dipilih karena rata-rata MAPE backtest bergulir terkecil ({mape:.2f}%) "
@@ -662,6 +743,8 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
         "peringatan_keandalan": peringatan_keandalan,
         "catatan_stabilitas": catatan_stabilitas,
         "jendela_bersama": jendela_bersama,
+        "jendela_dikeluarkan": jendela_keluar,
+        "lingkungan": versi_lingkungan(),
         "selang_tersedia": selang_tersedia,
         "selang_label": LABEL_SELANG if selang_tersedia else None,
         "selang_keterangan": selang_ket,
@@ -704,9 +787,8 @@ def tabel_perbandingan(meta: Optional[Dict[str, Any]], lengkap: bool = False,
             r["Rata-rata (jendela bersama)"] = fmt(b.get("mape_bersama"))
         if lengkap:
             r["SD"] = b["mape_std"] if numerik else ("-" if b["mape_std"] is None else f"{b['mape_std']:.2f}")
-        r["Jendela"] = b["n_jendela"]
-        if lengkap:
-            r["Gagal"] = b["n_gagal"]
+        r["Jendela dinilai"] = b["n_jendela"]
+        r["Gagal"] = b["n_gagal"]
         r["Status"] = status(b)
         hasil.append(r)
     return pd.DataFrame(hasil)

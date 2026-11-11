@@ -40,7 +40,7 @@ def generate_excel_report(
             
         # Sheet 4b: Perbandingan metode peramalan (jika ada)
         if forecast_meta and forecast_meta.get("perbandingan"):
-            from src.forecasting import tabel_perbandingan
+            from src.forecasting import ringkasan_catatan_metode, tabel_perbandingan
             tabel = tabel_perbandingan(forecast_meta, lengkap=True, numerik=True).rename(columns={
                 "Rata-rata MAPE": "Rata-rata MAPE (%)", "Median": "Median MAPE (%)",
                 "Terburuk": "MAPE Terburuk (%)", "SD": "SD MAPE (poin)",
@@ -58,6 +58,9 @@ def generate_excel_report(
                 {"Butir": "Dasar pemilihan", "Nilai": forecast_meta.get("dasar_pemilihan")},
                 {"Butir": "Catatan stabilitas", "Nilai": forecast_meta.get("catatan_stabilitas") or "-"},
                 {"Butir": "Peringatan keandalan", "Nilai": forecast_meta.get("peringatan_keandalan") or "-"},
+                {"Butir": "Catatan metode (lingkungan & konvergensi)",
+                 "Nilai": ringkasan_catatan_metode(forecast_meta)},
+                *[{"Butir": f"Versi {k}", "Nilai": v} for k, v in (forecast_meta.get("lingkungan") or {}).items()],
             ])
             ringkas.to_excel(writer, sheet_name="Ringkasan Peramalan", index=False)
 

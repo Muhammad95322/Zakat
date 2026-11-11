@@ -181,7 +181,7 @@ class TestPemilihanMetode:
     def test_tabel_perbandingan(self):
         _, meta = forecast_donations(_bulanan(36))
         tabel = tabel_perbandingan(meta)
-        for kolom in ("Metode", "Rata-rata MAPE", "Terburuk", "Jendela", "Status"):
+        for kolom in ("Metode", "Rata-rata MAPE", "Terburuk", "Jendela dinilai", "Gagal", "Status"):
             assert kolom in tabel.columns
         assert (tabel["Status"] == "TERPILIH").sum() == 1
 

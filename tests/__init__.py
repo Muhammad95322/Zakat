@@ -1,0 +1,2 @@
+# Lazismu Insight - tests package
+

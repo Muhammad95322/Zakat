@@ -27,6 +27,15 @@ __pycache__/
 .venv/
 venv/
 ENV/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local Database & Storage
+*.db
+*.sqlite3
+zakat_insight.db
+uploads/
 
 # IDE & Editor
 .vscode/*

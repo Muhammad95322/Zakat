@@ -98,7 +98,8 @@ def chart_komposisi_png(comp_df: pd.DataFrame, kolom: str = "jenis_dana") -> Opt
 
 
 def chart_peramalan_png(monthly_df: pd.DataFrame, forecast_df: pd.DataFrame,
-                        label_selang: Optional[str] = "Selang proyeksi") -> Optional[bytes]:
+                        label_selang: Optional[str] = "Selang proyeksi",
+                        terkoreksi: bool = False) -> Optional[bytes]:
     """Historis + proyeksi, dengan pita selang bila tersedia (batas tidak NaN)."""
     if forecast_df is None or forecast_df.empty or monthly_df is None or monthly_df.empty:
         return None
@@ -119,10 +120,13 @@ def chart_peramalan_png(monthly_df: pd.DataFrame, forecast_df: pd.DataFrame,
             ax.text(0.99, 0.02, "Sebagian bulan tanpa selang (di luar cakupan backtest/galat kurang)",
                     transform=ax.transAxes, ha="right", va="bottom", fontsize=6.5, color=TEKS_SEKUNDER)
     ax.plot([n - 1] + xf, [monthly_df["total_dana"].iloc[-1]] + forecast_df["proyeksi"].tolist(),
-            color=WARNA_SERI_2, linewidth=2, linestyle="--", label="Proyeksi")
+            color=WARNA_SERI_2, linewidth=2, linestyle="--",
+            label="Proyeksi (terkoreksi bias)" if terkoreksi else "Proyeksi")
+    if terkoreksi and "proyeksi_tanpa_koreksi" in forecast_df:
+        ax.plot(xf, forecast_df["proyeksi_tanpa_koreksi"], color=TEKS_SEKUNDER, linewidth=1,
+                linestyle=":", label="Sebelum koreksi")
     _gaya(ax, "Proyeksi penghimpunan (Rp)")
     _label_x_jarang(ax, labels, maks=14)
     ax.set_ylim(bottom=0)
-    ax.legend(loc="lower right", bbox_to_anchor=(1.0, 1.0), fontsize=7, frameon=False,
-              labelcolor=TEKS_SEKUNDER, ncol=3)
+    ax.legend(loc="upper right", fontsize=7, frameon=False, labelcolor=TEKS_SEKUNDER, ncol=2)
     return _ke_png(fig)

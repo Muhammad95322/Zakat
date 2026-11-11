@@ -749,7 +749,49 @@ def ringkasan_catatan_metode(meta: Optional[Dict[str, Any]]) -> str:
         )
     if not any(b.get("n_gagal") for b in meta.get("perbandingan") or []) and meta.get("perbandingan"):
         bagian.append("Tidak ada kegagalan konvergensi pada backtest.")
-    return " ".join(bagian)
+    bagian.append(ringkasan_koreksi_bias(meta))
+    k = (meta.get("konsistensi_selang") or {}).get("peringatan")
+    if k:
+        bagian.append(k)
+    return " ".join(b for b in bagian if b)
+
+
+def ringkasan_koreksi_bias(meta: Optional[Dict[str, Any]]) -> str:
+    """Satu kalimat: koreksi bias dipakai atau tidak, faktor, dan bukti uji bertingkat."""
+    kb = (meta or {}).get("koreksi_bias") or {}
+    if not kb:
+        return ""
+    uji = kb.get("uji") or {}
+    bukti = ""
+    if uji.get("n_eval"):
+        bukti = (f" Uji bertingkat (tanpa kebocoran) pada {uji['n_eval']} pasangan: MAPE tanpa koreksi "
+                 f"{uji['mape_tanpa']:.2f}%, dengan koreksi {uji['mape_dengan']:.2f}%.")
+    if kb.get("dipakai"):
+        faktor = [f["faktor"] for f in kb.get("faktor_per_horizon", []) if f["status"] == "dikoreksi"]
+        rentang = f" faktor {min(faktor):.2f}-{max(faktor):.2f}" if faktor else ""
+        return f"Koreksi bias dipakai ({len(faktor)} langkah horizon dikoreksi,{rentang}): {kb['alasan']}.{bukti}"
+    return f"Koreksi bias tidak dipakai: {kb.get('alasan')}.{bukti}"
+
+
+def tabel_bias_koreksi(meta: Optional[Dict[str, Any]]) -> pd.DataFrame:
+    """Tabel per langkah horizon: bias backtest dan faktor koreksi (UI/Excel)."""
+    meta = meta or {}
+    faktor = {f["langkah"]: f for f in (meta.get("koreksi_bias") or {}).get("faktor_per_horizon", [])}
+    baris = []
+    for b in meta.get("bias_per_horizon") or []:
+        f = faktor.get(b["langkah"], {})
+        baris.append({
+            "Bulan ke-": b["langkah"],
+            "Jumlah rasio": b["n_rasio"],
+            "Median aktual/prediksi": b["median_rasio"],
+            "Kuantil 10%": b["q10_rasio"],
+            "Kuantil 90%": b["q90_rasio"],
+            "Arah bias": b["arah"],
+            "Faktor dihitung": f.get("faktor_dihitung"),
+            "Faktor dipakai": f.get("faktor"),
+            "Status faktor": f.get("status"),
+        })
+    return pd.DataFrame(baris)
 
 
 def cek_stabilitas(pertama: Dict[str, Any], kedua: Dict[str, Any],

@@ -6,7 +6,9 @@ from typing import Optional
 import pandas as pd
 from fpdf import FPDF
 
-from src.forecasting import format_mape, format_mape_lengkap, ringkasan_catatan_metode, tabel_perbandingan
+from src.forecasting import (
+    format_mape, format_mape_lengkap, ringkasan_catatan_metode, ringkasan_koreksi_bias, tabel_perbandingan,
+)
 from src.utils import format_rupiah, format_tanggal
 
 
@@ -70,6 +72,17 @@ def _bagian_pemilihan_metode(pdf: FPDF, meta: dict) -> None:
     if meta.get("catatan_stabilitas"):
         pdf.set_text_color(51, 65, 85)
         pdf.multi_cell(0, 5, _aman("CATATAN: " + meta["catatan_stabilitas"]), new_x="LMARGIN", new_y="NEXT")
+    if meta.get("koreksi_bias"):
+        pdf.set_text_color(51, 65, 85)
+        pdf.multi_cell(0, 5, _aman("KOREKSI BIAS: " + ringkasan_koreksi_bias(meta)), new_x="LMARGIN", new_y="NEXT")
+        faktor = [f for f in meta["koreksi_bias"].get("faktor_per_horizon", [])]
+        if meta["koreksi_bias"].get("dipakai") and faktor:
+            pdf.multi_cell(0, 5, _aman("Faktor per bulan proyeksi: " + ", ".join(
+                f"ke-{f['langkah']}: {f['faktor']:.2f}" for f in faktor)), new_x="LMARGIN", new_y="NEXT")
+    konsistensi = (meta.get("konsistensi_selang") or {}).get("peringatan")
+    if konsistensi:
+        pdf.set_text_color(180, 83, 9)
+        pdf.multi_cell(0, 5, _aman("PERINGATAN: " + konsistensi), new_x="LMARGIN", new_y="NEXT")
     tabel = tabel_perbandingan(meta)
     if not tabel.empty:
         pdf.ln(1)
@@ -181,7 +194,8 @@ def generate_pdf_report(
     grafik = [
         (chart_tren_png(monthly_df) if monthly_df is not None else None, "Tren penghimpunan bulanan"),
         (chart_komposisi_png(composition_df) if composition_df is not None else None, "Komposisi per jenis dana"),
-        (chart_peramalan_png(monthly_df, forecast_df, (forecast_meta or {}).get("selang_label"))
+        (chart_peramalan_png(monthly_df, forecast_df, (forecast_meta or {}).get("selang_label"),
+                             ((forecast_meta or {}).get("koreksi_bias") or {}).get("dipakai", False))
          if forecast_df is not None else None, "Proyeksi penghimpunan"),
     ]
     if any(png for png, _ in grafik):

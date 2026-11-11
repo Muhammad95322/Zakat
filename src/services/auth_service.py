@@ -1,4 +1,5 @@
 """Layanan autentikasi, registrasi, dan sesi pengguna."""
+import hashlib
 import uuid
 import secrets
 from datetime import timedelta
@@ -14,6 +15,15 @@ from src.auth.jwt_handler import create_access_token, create_refresh_token, deco
 from src.services.audit_service import catat_log
 from src.services.email_service import kirim_email, email_verifikasi, email_reset_password
 from src.config import settings
+
+def hash_token(raw: str) -> str:
+    """SHA-256 dari token acak. Hanya hash yang disimpan di DB, token mentah hanya ada di tautan email."""
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def buat_tautan(page: str, raw_token: str) -> str:
+    return f"{settings.APP_BASE_URL}/?page={page}&token={raw_token}"
+
 
 def register_lembaga(
     db: Session,
@@ -74,14 +84,14 @@ def register_lembaga(
         id=str(uuid.uuid4()),
         user_id=admin_user.id,
         jenis="verifikasi_email",
-        token_hash=raw_token,
+        token_hash=hash_token(raw_token),
         expires_at=utc_now() + timedelta(hours=24)
     )
     db.add(token_obj)
     db.commit()
     
     # Kirim email verifikasi
-    verify_link = f"http://localhost:8501/?page=verify_email&token={raw_token}"
+    verify_link = buat_tautan("verify_email", raw_token)
     body = email_verifikasi(admin_user.nama_lengkap, verify_link)
     kirim_email(admin_user.email, "Verifikasi Email Lembaga - Zakat Insight", body)
     
@@ -140,7 +150,7 @@ def login(
         id=str(uuid.uuid4()),
         user_id=user.id,
         jenis="refresh",
-        token_hash=refresh_token,
+        token_hash=hash_token(refresh_token),
         expires_at=now + timedelta(days=settings.JWT_REFRESH_EXPIRE_DAYS)
     )
     db.add(token_obj)
@@ -153,7 +163,7 @@ def login(
 def verifikasi_email(db: Session, token_str: str) -> bool:
     """Verifikasi email menggunakan token."""
     token_obj = db.query(Token).filter(
-        Token.token_hash == token_str,
+        Token.token_hash == hash_token(token_str or ""),
         Token.jenis == "verifikasi_email",
         Token.used_at == None
     ).first()
@@ -185,13 +195,13 @@ def request_reset_password(db: Session, email: str) -> bool:
         id=str(uuid.uuid4()),
         user_id=user.id,
         jenis="reset_password",
-        token_hash=raw_token,
+        token_hash=hash_token(raw_token),
         expires_at=utc_now() + timedelta(hours=1)
     )
     db.add(token_obj)
     db.commit()
     
-    link = f"http://localhost:8501/?page=reset_password&token={raw_token}"
+    link = buat_tautan("reset_password", raw_token)
     body = email_reset_password(user.nama_lengkap, link)
     kirim_email(user.email, "Reset Kata Sandi - Zakat Insight", body)
     
@@ -202,7 +212,7 @@ def request_reset_password(db: Session, email: str) -> bool:
 def reset_password(db: Session, token_str: str, new_password: str) -> bool:
     """Mereset password dengan token valid."""
     token_obj = db.query(Token).filter(
-        Token.token_hash == token_str,
+        Token.token_hash == hash_token(token_str or ""),
         Token.jenis == "reset_password",
         Token.used_at == None
     ).first()
@@ -221,7 +231,12 @@ def reset_password(db: Session, token_str: str, new_password: str) -> bool:
     user.password_hash = hash_password(new_password)
     user.failed_login_count = 0
     user.locked_until = None
-    token_obj.used_at = utc_now()
+    now = utc_now()
+    token_obj.used_at = now
+    # Batalkan token reset lain yang masih berlaku untuk pengguna ini
+    db.query(Token).filter(
+        Token.user_id == user.id, Token.jenis == "reset_password", Token.used_at.is_(None)
+    ).update({Token.used_at: now}, synchronize_session=False)
     db.commit()
     
     catat_log(db, user.id, "reset_password_success", tenant_id=user.tenant_id)
@@ -233,7 +248,7 @@ def logout(db: Session, user_id: str, refresh_token: Optional[str] = None) -> No
     if refresh_token:
         token_obj = db.query(Token).filter(
             Token.user_id == user_id,
-            Token.token_hash == refresh_token
+            Token.token_hash == hash_token(refresh_token)
         ).first()
         if token_obj:
             token_obj.used_at = utc_now()

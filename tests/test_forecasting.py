@@ -721,3 +721,38 @@ class TestKoreksiBiasDasar:
         rinci = {1: [(t, 1.25) for t in range(3, 10)]}  # hanya 1 pasangan evaluasi (t=9)
         uji = fc.uji_koreksi_bertingkat(rinci)
         assert uji["dipakai"] is False and "terlalu sedikit" in uji["alasan"]
+
+
+class TestKonsistensiSelang:
+    def test_pelanggaran_menghasilkan_peringatan(self):
+        nan = np.nan
+        proyeksi = np.array([100.0, 100.0, 100.0, 100.0])
+        bawah = np.array([90.0, 110.0, nan, 50.0])   # bulan 2: proyeksi di bawah selang
+        atas = np.array([120.0, 130.0, nan, 80.0])    # bulan 4: proyeksi di atas selang
+        bias = [{"langkah": h, "arah": "meremehkan"} for h in (1, 2, 3)] + [{"langkah": 4, "arah": "melebihkan"}]
+        k = fc.periksa_konsistensi_selang(proyeksi, bawah, atas, bias)
+        assert k["n_bulan_selang"] == 3
+        assert k["bulan_di_luar"] == [2, 4]
+        assert k["di_dalam_selang"] == [True, False, None, False]
+        assert "di luar selang di 2 dari 3 bulan (bulan ke-2, 4)" in k["peringatan"]
+        assert "metode cenderung bias" in k["peringatan"]
+
+    def test_selang_tidak_sah_dilaporkan(self):
+        k = fc.periksa_konsistensi_selang(np.array([100.0, 100.0]), np.array([-5.0, 120.0]), np.array([150.0, 90.0]))
+        assert k["bulan_tidak_sah"] == [1, 2]
+        assert "tidak sah" in k["peringatan"]
+
+    def test_konsisten_tanpa_peringatan(self):
+        k = fc.periksa_konsistensi_selang(np.array([100.0]), np.array([90.0]), np.array([110.0]))
+        assert k["peringatan"] is None and k["bulan_di_luar"] == []
+
+    def test_peringatan_masuk_meta_dan_warning(self):
+        df, meta = forecast_donations(_bulanan(36))
+        k = meta["konsistensi_selang"]
+        ada = df["status_selang"] == "tersedia"
+        luar = ada & ((df["proyeksi"] < df["batas_bawah"]) | (df["proyeksi"] > df["batas_atas"]))
+        assert len(k["bulan_di_luar"]) == int(luar.sum())
+        assert df["proyeksi_di_dalam_selang"].tolist() == k["di_dalam_selang"]
+        if k["peringatan"]:
+            assert "PERINGATAN: " + k["peringatan"] in meta["warning"]
+        assert (df.loc[ada, "batas_bawah"] >= 0).all() and (df.loc[ada, "batas_bawah"] <= df.loc[ada, "batas_atas"]).all()

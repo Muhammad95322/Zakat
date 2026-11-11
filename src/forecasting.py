@@ -416,6 +416,8 @@ def _hasil_kosong(n: int) -> Tuple[pd.DataFrame, Dict[str, Any]]:
         "selang_per_bulan": [],
         "bias_per_horizon": [],
         "koreksi_bias": {"dipakai": False, "alasan": "tidak ada peramalan", "uji": {}, "faktor_per_horizon": []},
+        "konsistensi_selang": {"n_bulan_selang": 0, "bulan_di_luar": [], "bulan_tidak_sah": [],
+                               "di_dalam_selang": [], "peringatan": None},
         "perbandingan": [],
         "dasar_pemilihan": "Tidak ada peramalan.",
         "n_bulan": n,
@@ -567,6 +569,52 @@ def uji_koreksi_bertingkat(rinci: Dict[int, List[Tuple[int, float]]]) -> Dict[st
             f"(butuh perbaikan >= {AMBANG_PERBAIKAN_KOREKSI:.0%})"
         )
     return hasil
+
+
+def periksa_konsistensi_selang(proyeksi: np.ndarray, bawah: np.ndarray, atas: np.ndarray,
+                               bias: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    """Periksa tiap bulan yang punya selang: 0 <= bawah <= proyeksi <= atas.
+
+    Returns dict berisi jumlah bulan yang punya selang, bulan dengan proyeksi di luar selang,
+    bulan dengan selang tidak sah (negatif/terbalik), status per bulan, dan teks peringatan
+    (None bila konsisten).
+    """
+    proyeksi = np.asarray(proyeksi, dtype=float)
+    ada = np.isfinite(bawah) & np.isfinite(atas)
+    status: List[Optional[bool]] = []
+    luar, tidak_sah = [], []
+    for i in range(len(proyeksi)):
+        if not ada[i]:
+            status.append(None)
+            continue
+        if bawah[i] < 0 or bawah[i] > atas[i]:
+            tidak_sah.append(i + 1)
+        di_dalam = bool(bawah[i] - 1e-9 <= proyeksi[i] <= atas[i] + 1e-9)
+        status.append(di_dalam)
+        if not di_dalam:
+            luar.append(i + 1)
+    pesan = []
+    if luar:
+        arah = ""
+        if bias:
+            arah_bulan = [b["arah"] for b in bias if b["langkah"] in luar]
+            if arah_bulan:
+                dominan = max(set(arah_bulan), key=arah_bulan.count)
+                arah = f"; metode cenderung bias ({dominan} menurut backtest)"
+        pesan.append(
+            f"Proyeksi titik berada di luar selang di {len(luar)} dari {int(ada.sum())} bulan "
+            f"(bulan ke-{_rentang(luar)}){arah}. Selang menunjukkan rentang nilai yang lebih mungkin "
+            "berdasarkan galat masa lalu; proyeksi titik dari metode ini kemungkinan bias."
+        )
+    if tidak_sah:
+        pesan.append(f"Selang tidak sah (negatif atau terbalik) di bulan ke-{_rentang(tidak_sah)}.")
+    return {
+        "n_bulan_selang": int(ada.sum()),
+        "bulan_di_luar": luar,
+        "bulan_tidak_sah": tidak_sah,
+        "di_dalam_selang": status,
+        "peringatan": " ".join(pesan) if pesan else None,
+    }
 
 
 def ringkas_bias(rasio: Dict[int, List[float]]) -> List[Dict[str, Any]]:
@@ -933,6 +981,9 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
                 f" Bulan ke-{_rentang(luar)}: di luar cakupan backtest (data belum cukup untuk menguji "
                 "proyeksi sejauh itu), sehingga tanpa selang."
             )
+    konsistensi = periksa_konsistensi_selang(forecast_vals, lower_vals, upper_vals, bias_per_horizon)
+    if konsistensi["peringatan"]:
+        catatan.append("PERINGATAN: " + konsistensi["peringatan"])
     selang_tersedia = bool(np.isfinite(lower_vals).any())
     if not selang_tersedia or np.isnan(lower_vals).any():
         catatan.append(selang_ket)
@@ -944,6 +995,7 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
         "batas_atas": upper_vals,
         "status_selang": [r["status"] for r in rincian_selang],
         "proyeksi_tanpa_koreksi": proyeksi_tanpa_koreksi,
+        "proyeksi_di_dalam_selang": konsistensi["di_dalam_selang"],
     })
 
     for b in perbandingan:
@@ -978,6 +1030,7 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
         "selang_per_bulan": rincian_selang,
         "bias_per_horizon": bias_per_horizon,
         "koreksi_bias": koreksi_bias,
+        "konsistensi_selang": konsistensi,
         "perbandingan": perbandingan,
         "dasar_pemilihan": dasar,
         "n_bulan": n,

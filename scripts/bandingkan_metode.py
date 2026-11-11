@@ -27,11 +27,11 @@ def main() -> int:
     _, meta = forecast_donations(monthly)
 
     print(f"Data contoh: {args.transaksi} transaksi, {meta['n_bulan']} bulan")
-    print(f"{'Metode':52s} {'Latih':>5s} {'Uji':>4s} {'MAPE':>10s}  Keterangan")
+    print(f"{'Metode':60s} {'Latih':>5s} {'Uji':>4s} {'MAPE':>10s}  Keterangan")
     for b in meta.get("perbandingan", []):
         mape = "-" if b["mape"] is None else f"{b['mape']:.2f}%"
         tanda = " <- terpilih" if b["terpilih"] else ""
-        print(f"{b['metode']:52s} {b['bulan_latih']:>5} {b['bulan_uji']:>4} {mape:>10s}  {b['status']}{tanda}")
+        print(f"{b['metode']:60s} {b['bulan_latih']:>5} {b['bulan_uji']:>4} {mape:>10s}  {b['status']}{tanda}")
     print(f"\nMetode terpilih: {meta['metode']} | MAPE: {format_mape(meta)}")
     if meta.get("peringatan_keandalan"):
         print("PERINGATAN:", meta["peringatan_keandalan"])

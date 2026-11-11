@@ -28,6 +28,7 @@ METODE_TREN_LINIER = "Tren linier sederhana"
 METODE_TREN_MUSIMAN = "Tren linier + faktor musiman bulanan"
 METODE_NAIF_MUSIMAN = "Naif musiman (nilai bulan yang sama tahun lalu)"
 METODE_HOLT_WINTERS = "Holt-Winters (tren & musiman aditif, statsmodels)"
+METODE_TREN_RAMADAN = "Tren linier + penanda Ramadan/Idulfitri (kalender Hijriah)"
 
 MAPE_TIDAK_TERSEDIA = "tidak tersedia"
 BATAS_MAPE_ANDAL = 50.0
@@ -99,6 +100,35 @@ def _pred_naif_musiman(y, tgl, tgl_depan):
     return pred, y[12:] - y[:-12]
 
 
+def _pred_tren_ramadan(y, tgl, tgl_depan):
+    """Regresi y = a + b*t + c*porsi_ramadan + d*idulfitri (kuadrat terkecil).
+
+    Fitur kalender diketahui di muka (bukan dari nilai aktual), jadi aman dari kebocoran.
+    """
+    from src.kalender_hijriah import fitur_ramadan
+
+    n = len(y)
+    f_latih = fitur_ramadan(tgl)
+    kolom = [c for c in f_latih.columns if f_latih[c].abs().sum() > 0]
+    if "porsi_ramadan" not in kolom:
+        raise _TidakMemenuhiSyarat("periode latih tidak mencakup bulan Ramadan")
+    f_depan = fitur_ramadan(tgl_depan)
+
+    def _X(t, f):
+        return np.column_stack([np.ones(len(t)), t] + [f[c].to_numpy() for c in kolom])
+
+    X = _X(np.arange(n), f_latih)
+    koef, *_ = np.linalg.lstsq(X, y, rcond=None)
+    pred = _X(np.arange(n, n + len(tgl_depan)), f_depan) @ koef
+    return pred, y - X @ koef
+
+
+def _prasyarat_kalender(tgl, tgl_depan):
+    from src.kalender_hijriah import cek_cakupan
+
+    return cek_cakupan(tgl.append(tgl_depan))
+
+
 def _pred_holt_winters(y, tgl, tgl_depan):
     try:
         from statsmodels.tsa.holtwinters import ExponentialSmoothing
@@ -137,6 +167,8 @@ class Kandidat:
     min_latih: int          # minimal bulan data latih
     min_total: int = 0      # minimal panjang data keseluruhan agar kandidat ikut diuji
     syarat_total: str = ""  # penjelasan min_total untuk pengguna
+    # Fungsi (tanggal_data, tanggal_proyeksi) -> None atau alasan kandidat dinonaktifkan
+    prasyarat: Optional[Callable[[pd.DatetimeIndex, pd.DatetimeIndex], Optional[str]]] = None
 
 
 # Urutan = urutan kesederhanaan; dipakai sebagai pemecah seri bila MAPE sama.
@@ -146,6 +178,8 @@ _KANDIDAT: List[Kandidat] = [
     Kandidat("naif_musiman", METODE_NAIF_MUSIMAN, _pred_naif_musiman, 12, 24,
              "hanya diuji bila data >= 24 bulan"),
     Kandidat("tren_musiman", METODE_TREN_MUSIMAN, _pred_tren_musiman, 12),
+    Kandidat("tren_ramadan", METODE_TREN_RAMADAN, _pred_tren_ramadan, 12,
+             prasyarat=_prasyarat_kalender),
     Kandidat("holt_winters", METODE_HOLT_WINTERS, _pred_holt_winters, 24),
 ]
 _METODE = {k.kode: k for k in _KANDIDAT}
@@ -173,7 +207,8 @@ def _prediksi_backtest(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex,
     return np.maximum(np.asarray(pred, dtype=float), 0)
 
 
-def _uji_kandidat(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex, n_uji: int) -> Dict[str, Any]:
+def _uji_kandidat(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex, n_uji: int,
+                  tgl_depan: pd.DatetimeIndex) -> Dict[str, Any]:
     n = len(y)
     baris = {
         "kode": kandidat.kode,
@@ -185,6 +220,12 @@ def _uji_kandidat(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex, n_uj
         "tersedia": False,
         "terpilih": False,
     }
+    if kandidat.prasyarat is not None:
+        alasan = kandidat.prasyarat(tgl, tgl_depan)
+        if alasan:
+            baris["status"] = f"dinonaktifkan: {alasan}"
+            baris["nonaktif"] = alasan
+            return baris
     if n < kandidat.min_total:
         baris["status"] = f"tidak diuji: {kandidat.syarat_total} (data {n} bulan)"
         return baris
@@ -216,7 +257,8 @@ def _uji_kandidat(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex, n_uj
     return baris
 
 
-def bandingkan_metode(y: np.ndarray, tgl: pd.DatetimeIndex) -> Tuple[List[Dict[str, Any]], int]:
+def bandingkan_metode(y: np.ndarray, tgl: pd.DatetimeIndex,
+                      tgl_depan: Optional[pd.DatetimeIndex] = None) -> Tuple[List[Dict[str, Any]], int]:
     """Backtest semua kandidat pada jendela uji yang sama.
 
     Returns:
@@ -225,7 +267,9 @@ def bandingkan_metode(y: np.ndarray, tgl: pd.DatetimeIndex) -> Tuple[List[Dict[s
     n_uji = jumlah_bulan_uji(len(y))
     if n_uji == 0:
         return [], 0
-    return [_uji_kandidat(k, y, tgl, n_uji) for k in _KANDIDAT], n_uji
+    if tgl_depan is None:
+        tgl_depan = pd.DatetimeIndex([])
+    return [_uji_kandidat(k, y, tgl, n_uji, tgl_depan) for k in _KANDIDAT], n_uji
 
 
 def _hasil_kosong(n: int) -> Tuple[pd.DataFrame, Dict[str, Any]]:
@@ -284,7 +328,7 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
     tgl = _tanggal_bulanan(monthly_df)
     tgl_depan = pd.date_range(tgl[-1] + pd.DateOffset(months=1), periods=periods, freq="MS")
 
-    perbandingan, n_uji = bandingkan_metode(y, tgl)
+    perbandingan, n_uji = bandingkan_metode(y, tgl, tgl_depan)
     tersedia = sorted(
         (b for b in perbandingan if b["tersedia"]),
         key=lambda b: (b["mape"], [k.kode for k in _KANDIDAT].index(b["kode"])),
@@ -292,6 +336,9 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
     gangguan = [b for b in perbandingan if b.get("gangguan")]
 
     catatan: List[str] = []
+    for b in perbandingan:
+        if b.get("nonaktif"):
+            catatan.append(f"{b['metode']} dinonaktifkan: {b['nonaktif']}.")
     fallback_alasan = None
     if gangguan:
         fallback_alasan = " ".join(f"{b['metode']} {b['status']}." for b in gangguan) + (
@@ -365,6 +412,7 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
 
     for b in perbandingan:
         b.pop("gangguan", None)
+        b.pop("nonaktif", None)
 
     meta = {
         "metode": _METODE[kode].label,

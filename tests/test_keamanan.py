@@ -447,3 +447,32 @@ def test_s7_r5_konfigurasi_streamlit():
     assert cfg["browser"]["gatherUsageStats"] is False
     assert cfg["server"]["enableXsrfProtection"] is True
     assert cfg["server"]["maxUploadSize"] == settings.MAX_UPLOAD_SIZE_MB
+
+
+# ---------------------------------------------------------------------------
+# S8/F2/F3: deploy
+# ---------------------------------------------------------------------------
+def test_s8_dockerfile_non_root_dan_tanpa_rahasia():
+    akar = _Path(__file__).parent.parent
+    df = (akar / "Dockerfile").read_text()
+    baris_user = [l for l in df.splitlines() if l.startswith("USER ")]
+    assert baris_user and baris_user[-1].split()[1] not in ("root", "0")
+    ignore = (akar / ".dockerignore").read_text().split()
+    assert ".env" in ignore and "*.db" in ignore and "backups/" in ignore
+
+
+def test_f3_langganan_berlabel_tanpa_kontak_palsu():
+    import inspect
+    import src.pages.pg_langganan as pl
+    sumber = inspect.getsource(pl)
+    assert "Belum ada pembayaran" in sumber
+    assert "+62 812-3456-7890" not in sumber
+
+
+def test_f2_compose_dan_render_mengatur_email_dan_base_url():
+    import yaml
+    akar = _Path(__file__).parent.parent
+    env_app = " ".join(yaml.safe_load((akar / "docker-compose.yml").read_text())["services"]["app"]["environment"])
+    assert "APP_BASE_URL" in env_app and "EMAIL_ENABLED" in env_app
+    kunci = [e["key"] for e in yaml.safe_load((akar / "render.yaml").read_text())["services"][0]["envVars"]]
+    assert "APP_BASE_URL" in kunci and "EMAIL_SMTP_PASS" in kunci

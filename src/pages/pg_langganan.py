@@ -4,6 +4,14 @@ from src.database import get_db
 from src.auth.session import get_tenant_id
 from src.services.tenant_service import get_tenant, get_tenant_stats, PAKET_LIMITS
 
+def _pesan_kontak() -> str:
+    from src.config import settings
+    if settings.KONTAK_PENJUALAN:
+        return f"Untuk perubahan paket, hubungi: **{settings.KONTAK_PENJUALAN}**."
+    return ("Kontak penjualan belum dikonfigurasi oleh pengelola platform (KONTAK_PENJUALAN). "
+            "Hubungi administrator platform Anda.")
+
+
 def show():
     st.title("💎 Paket Langganan & Kapasitas")
     tenant_id = get_tenant_id()
@@ -16,6 +24,11 @@ def show():
         stats = get_tenant_stats(db, tenant_id)
 
     curr_paket = tenant.paket if tenant else "basic"
+    st.warning(
+        "ℹ️ **Halaman ini hanya informasi paket.** Belum ada pembayaran atau penagihan online di aplikasi ini; "
+        "harga bersifat indikatif. Perubahan paket dilakukan manual oleh Super Administrator setelah "
+        "kesepakatan di luar aplikasi."
+    )
     st.success(f"Paket Anda Saat Ini: **{curr_paket.upper()}**")
     
     # Perbandingan 3 Paket
@@ -51,7 +64,7 @@ def show():
             st.button("Paket Aktif", disabled=True, key="p_pro")
         else:
             if st.button("Tingkatkan ke Pro", type="primary", key="up_pro"):
-                st.info("Untuk peningkatan paket, hubungi tim kami di **sales@zakatinsight.id** atau WhatsApp **+62 812-3456-7890**.")
+                st.info(_pesan_kontak())
                 
     with c3:
         st.markdown("""
@@ -68,5 +81,5 @@ def show():
             st.button("Paket Aktif", disabled=True, key="p_ent")
         else:
             if st.button("Hubungi Enterprise", key="up_ent"):
-                st.info("Hubungi tim sales enterprise di **sales@zakatinsight.id**.")
+                st.info(_pesan_kontak())
 

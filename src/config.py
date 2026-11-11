@@ -27,7 +27,8 @@ def muat_env_file() -> None:
 muat_env_file()
 
 # Nilai kunci bawaan/contoh yang TIDAK boleh dipakai di production.
-DEFAULT_SECRET_KEY = "dev-secret-key-ganti-di-production-32chars"
+# nosec B105: kunci khusus development; production dengan kunci ini ditolak validate_security_settings
+DEFAULT_SECRET_KEY = "dev-secret-key-ganti-di-production-32chars"  # nosec B105
 KNOWN_INSECURE_SECRET_KEYS = {
     DEFAULT_SECRET_KEY,
     "changeme",
@@ -97,6 +98,9 @@ class Settings:
 
     # Alamat publik aplikasi untuk tautan di email (verifikasi, reset, undangan)
     APP_BASE_URL: str = os.getenv("APP_BASE_URL", "http://localhost:8501").rstrip("/")
+
+    # Kontak penjualan yang ditampilkan di halaman langganan (kosong = belum dikonfigurasi)
+    KONTAK_PENJUALAN: str = os.getenv("KONTAK_PENJUALAN", "")
 
     # Super Admin
     SUPERADMIN_EMAIL: str = os.getenv("SUPERADMIN_EMAIL", "admin@zakatinsight.id")

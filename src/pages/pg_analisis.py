@@ -16,7 +16,7 @@ from src.analysis import (
     get_distribution_analysis, get_statistical_tests
 )
 from src.rfm import segment_rfm
-from src.forecasting import forecast_donations, format_mape
+from src.forecasting import forecast_donations, format_mape, tabel_perbandingan
 from src.charts import (
     chart_trend_bulanan, chart_komposisi_donut, chart_bar_wilayah,
     chart_lorenz, chart_forecasting
@@ -228,12 +228,21 @@ def show():
     with tab6:
         st.markdown("### Proyeksi Penerimaan 12 Bulan ke Depan")
         st.caption(f"Metode: **{forecast_meta.get('metode')}** | Estimasi Galat (MAPE backtest): **{format_mape(forecast_meta)}**")
+        if forecast_meta.get("peringatan_keandalan"):
+            st.warning(f"⚠️ {forecast_meta['peringatan_keandalan']}")
         if forecast_meta.get("fallback"):
-            st.warning(f"⚠️ Metode cadangan dipakai. {forecast_meta.get('fallback_alasan')}")
+            st.warning(f"⚠️ {forecast_meta.get('fallback_alasan')}")
         if forecast_meta.get("mape_keterangan"):
             st.caption(forecast_meta["mape_keterangan"])
-        if forecast_meta.get("warning"):
-            st.info(forecast_meta["warning"])
+        if forecast_meta.get("dasar_pemilihan"):
+            st.caption(f"Dasar pemilihan: {forecast_meta['dasar_pemilihan']}")
+        tabel_metode = tabel_perbandingan(forecast_meta)
+        if not tabel_metode.empty:
+            with st.expander("📊 Perbandingan MAPE backtest semua metode", expanded=True):
+                st.dataframe(tabel_metode, use_container_width=True, hide_index=True)
+        catatan_lain = [c for c in forecast_meta.get("warning", "").split("PERINGATAN: ")[0:1] if c.strip()]
+        if catatan_lain:
+            st.info(catatan_lain[0].strip())
             
         if not forecast_df.empty:
             st.plotly_chart(chart_forecasting(trend["monthly"], forecast_df), use_container_width=True, key="chart_analisis_7")
@@ -274,7 +283,8 @@ def show():
                 summary_stats=stats,
                 rfm_df=rfm_df,
                 forecast_df=forecast_df,
-                cleaning_log=log_himpun
+                cleaning_log=log_himpun,
+                forecast_meta=forecast_meta,
             )
             st.download_button(
                 "📊 Unduh Laporan Lengkap Excel",

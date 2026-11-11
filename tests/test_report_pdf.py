@@ -77,3 +77,26 @@ def test_pdf_dengan_peringatan_penyaluran(analisis):
     pdf = generate_pdf_report("Lembaga Uji", stats, dist, None, trend["monthly"], comp["jenis_dana"])
     _, teks = _teks_pdf(pdf)
     assert "Peringatan kedua" in teks
+
+
+def _mape_dari_teks(teks):
+    teks = re.sub(r"\s+", " ", teks)
+    m = re.search(r"Metode terpilih: (.+?) \| MAPE backtest: ([0-9.]+%|tidak tersedia)", teks)
+    assert m, "baris metode terpilih tidak ditemukan di PDF"
+    return m.group(1), m.group(2), teks
+
+
+@pytest.mark.parametrize("n_bulan", [36, 18, 8])
+def test_pdf_mape_sama_dengan_metode_terpilih(analisis, n_bulan):
+    from src.forecasting import format_mape
+    stats, trend, comp = analisis
+    monthly = trend["monthly"].iloc[:n_bulan].reset_index(drop=True)
+    fdf, meta = forecast_donations(monthly)
+    pdf = generate_pdf_report("Lembaga Uji", stats, None, None, monthly, comp["jenis_dana"], fdf, meta)
+    _, teks = _teks_pdf(pdf)
+    metode, mape, teks_rapi = _mape_dari_teks(teks)
+    assert metode == meta["metode"]
+    assert mape == format_mape(meta)
+    terpilih = [b for b in meta["perbandingan"] if b["terpilih"]]
+    assert len(terpilih) == 1 and terpilih[0]["mape"] == meta["mape"]
+    assert f"Estimasi galat (MAPE backtest): {format_mape(meta)}" in teks_rapi

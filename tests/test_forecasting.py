@@ -202,3 +202,93 @@ def test_tidak_ada_angka_hardcode_di_sumber():
     sumber = inspect.getsource(fc)
     for angka in ("18.5", "12.4", "14.2", "min(50"):
         assert angka not in sumber
+
+
+class TestPemilihanManual:
+    """Data 9 bulan: 3 bulan latih [100, 110, 120], 6 bulan uji.
+
+    Hanya rata-rata bergerak (prediksi 110) dan tren linier (130, 140, ..., 180)
+    yang memenuhi syarat 3 bulan latih, sehingga MAPE keduanya bisa dihitung manual.
+    """
+
+    LATIH = [100, 110, 120]
+
+    def test_tren_linier_menang(self):
+        uji = [130, 140, 150, 160, 170, 180]
+        _, meta = forecast_donations(_dari_nilai(self.LATIH + uji))
+        mape_rb = np.mean([abs(a - 110) / a for a in uji]) * 100
+        assert _baris(meta, "tren_linier")["mape"] == pytest.approx(0.0)
+        assert _baris(meta, "rata_bergerak")["mape"] == pytest.approx(round(mape_rb, 2))
+        assert meta["kode_metode"] == "tren_linier"
+        assert meta["mape"] == pytest.approx(0.0)
+        assert [b["kode"] for b in meta["perbandingan"] if b["mape"] is not None] == ["rata_bergerak", "tren_linier"]
+
+    def test_rata_bergerak_menang(self):
+        uji = [110] * 6
+        _, meta = forecast_donations(_dari_nilai(self.LATIH + uji))
+        # tren linier: |110 - (130..180)| / 110 -> rata-rata 45/110
+        assert _baris(meta, "tren_linier")["mape"] == pytest.approx(round(45 / 110 * 100, 2))
+        assert _baris(meta, "rata_bergerak")["mape"] == pytest.approx(0.0)
+        assert meta["kode_metode"] == "rata_bergerak"
+
+    def test_seri_dipecah_oleh_kesederhanaan(self):
+        # Kedua metode MAPE sama -> pilih yang lebih sederhana (rata-rata bergerak)
+        _, meta = forecast_donations(_dari_nilai([100, 100, 100] + [100] * 6))
+        assert _baris(meta, "rata_bergerak")["mape"] == _baris(meta, "tren_linier")["mape"] == 0
+        assert meta["kode_metode"] == "rata_bergerak"
+
+
+class TestTanpaKebocoranData:
+    def test_prediksi_backtest_tidak_bergantung_pada_data_uji(self):
+        data = _bulanan(36)
+        y = data["total_dana"].to_numpy()
+        tgl = pd.DatetimeIndex(pd.to_datetime(data["periode_str"]))
+        y_rusak = y.copy()
+        y_rusak[-6:] = [1, 1e12, 5, 7e9, 3, 42]  # ganti total nilai uji
+        for k in fc._KANDIDAT:
+            try:
+                a = fc._prediksi_backtest(k, y, tgl, 6)
+            except Exception:
+                continue  # kandidat tak tersedia di lingkungan ini
+            b = fc._prediksi_backtest(k, y_rusak, tgl, 6)
+            assert np.allclose(a, b), k.kode
+
+    def test_fungsi_hanya_menerima_bulan_latih(self, monkeypatch):
+        dilihat = []
+        data = _bulanan(36)
+        batas_latih = data["total_dana"].iloc[:30].max()
+
+        def mata_mata(kandidat):
+            def f(y, tgl, tgl_depan):
+                dilihat.append((kandidat.kode, len(y), len(tgl), float(np.max(y))))
+                return kandidat.fungsi(y, tgl, tgl_depan)
+            return fc.Kandidat(kandidat.kode, kandidat.label, f, kandidat.min_latih,
+                               kandidat.min_total, kandidat.syarat_total, kandidat.prasyarat)
+
+        monkeypatch.setattr(fc, "_KANDIDAT", [mata_mata(k) for k in fc._KANDIDAT])
+        fc.bandingkan_metode(data["total_dana"].to_numpy(), pd.DatetimeIndex(pd.to_datetime(data["periode_str"])))
+        assert dilihat, "tidak ada kandidat yang diuji"
+        for kode, n_y, n_tgl, maks in dilihat:
+            assert n_y == n_tgl == 30, kode
+            assert maks <= batas_latih, kode
+
+
+class TestPeringatanKeandalan:
+    def test_semua_mape_di_atas_50_persen(self):
+        data = _bulanan(36)
+        data.loc[data.index[-6:], "total_dana"] *= 10  # lonjakan tak terduga di periode uji
+        _, meta = forecast_donations(data)
+        diuji = [b["mape"] for b in meta["perbandingan"] if b["mape"] is not None]
+        assert diuji and min(diuji) > 50
+        assert meta["peringatan_keandalan"] is not None
+        assert "belum dapat diandalkan" in meta["peringatan_keandalan"]
+        assert meta["peringatan_keandalan"] in meta["warning"]
+
+    def test_tidak_ada_peringatan_bila_ada_yang_di_bawah_50(self):
+        _, meta = forecast_donations(_bulanan(36))
+        assert meta["mape"] < 50
+        assert meta["peringatan_keandalan"] is None
+
+    def test_tidak_ada_peringatan_bila_mape_tidak_tersedia(self):
+        _, meta = forecast_donations(_bulanan(4))
+        assert meta["mape"] is None and meta["peringatan_keandalan"] is None

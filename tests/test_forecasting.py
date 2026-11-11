@@ -463,3 +463,12 @@ class TestStabilitas:
     def test_tidak_ada_catatan_bila_hanya_satu_metode(self):
         _, meta = forecast_donations(_bulanan(5))
         assert meta["catatan_stabilitas"] is None
+
+
+@pytest.mark.parametrize("n", [36, 120])
+def test_performa_di_bawah_15_detik(n):
+    import time
+    mulai = time.perf_counter()
+    df, meta = forecast_donations(_bulanan(n))
+    assert time.perf_counter() - mulai < 15
+    assert len(df) == 12 and meta["n_bulan"] == n

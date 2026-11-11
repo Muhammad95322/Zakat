@@ -67,3 +67,20 @@ def test_startup_production_kunci_bawaan_ditolak():
 def test_startup_production_kunci_kuat_diterima():
     hasil = _jalankan_validator({"APP_ENV": "production", "APP_SECRET_KEY": "k" * 48})
     assert hasil.returncode == 0, hasil.stderr
+
+
+def test_seed_dev_tolak_di_production(tmp_path):
+    env = {k: v for k, v in os.environ.items() if k not in ("APP_ENV", "APP_SECRET_KEY")}
+    env.update({
+        "APP_ENV": "production",
+        "APP_SECRET_KEY": "k" * 48,
+        "DATABASE_URL": f"sqlite:///{tmp_path}/seed.db",
+    })
+    hasil = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "seed_dev.py")],
+        env=env, capture_output=True, text=True, cwd=str(ROOT),
+    )
+    assert hasil.returncode == 1
+    assert "APP_ENV=production" in hasil.stderr
+    assert "Traceback" not in hasil.stderr
+    assert not (tmp_path / "seed.db").exists()

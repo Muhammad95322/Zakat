@@ -7,12 +7,30 @@ from datetime import date, timedelta
 # Pastikan import src terbaca
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.database import init_db, get_db
+from src.config import settings  # noqa: E402
+
+PESAN_TOLAK_PRODUCTION = (
+    "❌ scripts/seed_dev.py ditolak: APP_ENV=production. Skrip ini membuat akun uji "
+    "dengan kata sandi yang diketahui publik dan hanya boleh dijalankan di lingkungan "
+    "development/staging. Untuk production, buat superadmin dengan "
+    "`python scripts/create_superadmin.py`."
+)
+
+
+def tolak_jika_production() -> None:
+    """Hentikan skrip (exit code 1) jika dijalankan dengan APP_ENV=production."""
+    if settings.is_production:
+        print(PESAN_TOLAK_PRODUCTION, file=sys.stderr)
+        sys.exit(1)
+
+
+from src.database import init_db, get_db  # noqa: E402
 from src.auth.hashing import hash_password
 from src.models.tenant import Tenant
 from src.models.user import User
 
 def seed():
+    tolak_jika_production()
     print("🌱 Memulai inisialisasi basis data dan data seed...")
     init_db()
     

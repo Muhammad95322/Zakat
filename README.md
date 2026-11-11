@@ -73,25 +73,35 @@ Buka browser di `http://localhost:8501`.
 
 ## 🔑 Akun Uji Coba (Development)
 
-| Peran | Lembaga | Email | Kata Sandi |
-|---|---|---|---|
-| **Super Admin** | *Pusat (Platform)* | `superadmin@zakatinsight.id` | `SuperAdmin123` |
-| **Admin** | Lazismu Wilayah DIY (Pro) | `admin@lazismu-diy.id` | `Admin123` |
-| **Staf** | Lazismu Wilayah DIY (Pro) | `staf@lazismu-diy.id` | `Staf1234` |
-| **Pembaca** | Lazismu Wilayah DIY (Pro) | `pembaca@lazismu-diy.id` | `Baca1234` |
-| **Admin** | BAZNAS Sleman (Basic) | `admin@baznas-sleman.id` | `Admin123` |
-| **Admin** | YDSF Yogyakarta (Enterprise) | `admin@ydsf-jogja.id` | `Admin123` |
+Kata sandi akun uji **tidak** dicantumkan di README. Untuk membuat akun:
+
+1. **Data & akun uji (khusus development/staging)** — jalankan:
+   ```bash
+   python scripts/seed_dev.py
+   ```
+   Skrip membuat beberapa lembaga contoh beserta akun uji dan mencetak kredensialnya
+   di terminal Anda. Skrip **menolak berjalan** bila `APP_ENV=production`.
+2. **Super Admin (semua lingkungan, termasuk production)** — jalankan:
+   ```bash
+   python scripts/create_superadmin.py
+   ```
+   Anda akan diminta email, nama, dan kata sandi kuat secara interaktif (tidak tersimpan di file mana pun).
 
 ---
 
 ## 🐳 Menjalankan dengan Docker
 
 ```bash
+# APP_SECRET_KEY wajib diisi (lewat environment atau file .env)
+export APP_SECRET_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(48))")
+# Opsional (sangat disarankan di luar laptop sendiri): ganti kata sandi bawaan lokal
+export POSTGRES_PASSWORD='...'  PGADMIN_PASSWORD='...'
+
 # Menjalankan aplikasi + PostgreSQL + pgAdmin
 docker-compose up -d --build
 ```
 - **Aplikasi Zakat Insight**: `http://localhost:8501`
-- **pgAdmin**: `http://localhost:5050` (Email: `admin@zakatinsight.id`, Pass: `pgadmin123`)
+- **pgAdmin**: `http://localhost:5050` (email dari `PGADMIN_EMAIL`, kata sandi dari `PGADMIN_PASSWORD`; nilai bawaan di `docker-compose.yml` hanya untuk lokal)
 
 ---
 

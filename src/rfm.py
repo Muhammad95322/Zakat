@@ -27,6 +27,15 @@ def calculate_gini(series: pd.Series) -> Tuple[float, np.ndarray, np.ndarray]:
     return gini, lorenz_x, lorenz_y
 
 
+def _skor_kuantil(nilai: pd.Series, labels: list) -> pd.Series:
+    """Skor kuantil 1-5. Jika banyak nilai kembar sehingga batas kuantil tidak
+    unik (qcut gagal), pakai peringkat agar tetap terbagi 5 kelompok."""
+    try:
+        return pd.qcut(nilai, q=5, labels=labels).astype(int)
+    except ValueError:
+        return pd.qcut(nilai.rank(method="first"), q=5, labels=labels).astype(int)
+
+
 def segment_rfm(df_himpun: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """Melakukan segmentasi RFM (Recency, Frequency, Monetary) pada data muzaki.
     
@@ -59,8 +68,8 @@ def segment_rfm(df_himpun: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     
     # Recency score (lebih baru / hari lebih sedikit = skor lebih tinggi)
     if n_records >= 5:
-        rfm["r_score"] = pd.qcut(rfm["recency_days"], q=5, labels=[5, 4, 3, 2, 1], duplicates="drop").astype(int)
-        rfm["m_score"] = pd.qcut(rfm["monetary"], q=5, labels=[1, 2, 3, 4, 5], duplicates="drop").astype(int)
+        rfm["r_score"] = _skor_kuantil(rfm["recency_days"], [5, 4, 3, 2, 1])
+        rfm["m_score"] = _skor_kuantil(rfm["monetary"], [1, 2, 3, 4, 5])
     else:
         rfm["r_score"] = 3
         rfm["m_score"] = 3

@@ -114,7 +114,7 @@ def clean_data(df: pd.DataFrame, sheet_type: str = "Penghimpunan") -> Tuple[pd.D
                 "keterangan": f"Dihapus {invalid_count} baris dengan nominal donasi Rp 0, bernilai negatif, atau bukan angka."
             })
             df_clean = df_clean[~invalid_jumlah].copy().reset_index(drop=True)
-            df_clean["jumlah"] = parsed_jumlah[~invalid_jumlah].astype(float)
+            df_clean["jumlah"] = parsed_jumlah[~invalid_jumlah].astype(float).to_numpy()
         else:
             df_clean["jumlah"] = parsed_jumlah.astype(float)
             
@@ -131,7 +131,7 @@ def clean_data(df: pd.DataFrame, sheet_type: str = "Penghimpunan") -> Tuple[pd.D
                 "keterangan": f"Dihapus {invalid_date_count} baris yang tidak memiliki tanggal transaksi valid."
             })
             df_clean = df_clean[~invalid_date].copy().reset_index(drop=True)
-            df_clean["tanggal"] = pd.to_datetime(parsed_dates[~invalid_date])
+            df_clean["tanggal"] = pd.to_datetime(parsed_dates[~invalid_date]).to_numpy()
         else:
             df_clean["tanggal"] = pd.to_datetime(parsed_dates)
             

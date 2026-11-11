@@ -11,6 +11,7 @@ from src.services.tenant_service import PAKET_LIMITS, get_tenant
 from src.middleware.security import validasi_file_upload, sanitasi_nama_file
 from src.services.audit_service import catat_log
 from src.config import settings
+from src.loader import DataFileError
 
 def cek_kuota(db: Session, tenant_id: str, ukuran_bytes: int) -> Tuple[bool, str]:
     """Cek apakah penambahan file masih dalam batas kuota paket."""
@@ -48,6 +49,15 @@ def simpan_upload(
     if not is_valid:
         return None, pesan
         
+    # Validasi isi berkas sejak awal agar berkas rusak/kosong tidak tersimpan
+    try:
+        from src.pipeline import siapkan_data
+        siapkan_data(file_bytes, nama_bersih)
+    except DataFileError as e:
+        return None, str(e)
+    except Exception:
+        return None, "Berkas tidak dapat dibaca. Pastikan berkas sesuai template, lalu coba lagi."
+
     bisa_unggah, pesan_kuota = cek_kuota(db, tenant_id, len(file_bytes))
     if not bisa_unggah:
         return None, pesan_kuota

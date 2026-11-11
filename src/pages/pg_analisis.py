@@ -1,4 +1,5 @@
 """Halaman Analisis Interaktif ZIS Komprehensif dengan Visualisasi dan Ekspor."""
+import logging
 import os
 import streamlit as st
 import pandas as pd
@@ -8,8 +9,8 @@ from src.database import get_db
 from src.auth.session import get_tenant_id, get_current_user
 from src.services.upload_service import get_upload, get_uploads
 from src.services.tenant_service import get_tenant
-from src.loader import load_file
-from src.cleaning import clean_data
+from src.loader import DataFileError
+from src.pipeline import siapkan_data
 from src.analysis import (
     get_summary_stats, get_trend_analysis, get_composition_analysis,
     get_distribution_analysis, get_statistical_tests
@@ -23,6 +24,9 @@ from src.charts import (
 from src.report_excel import generate_excel_report
 from src.report_pdf import generate_pdf_report
 from src.utils import format_rupiah, format_tanggal
+
+logger = logging.getLogger(__name__)
+
 
 def show():
     tenant_id = get_tenant_id()
@@ -68,13 +72,24 @@ def show():
     with open(upload_record.storage_path, "rb") as f:
         file_bytes = f.read()
         
-    dfs = load_file(file_bytes, upload_record.nama_file_asli)
-    raw_himpun = dfs.get("Penghimpunan", pd.DataFrame())
-    raw_salur = dfs.get("Penyaluran", pd.DataFrame())
-    
-    # Jalankan Pembersihan Data Otomatis
-    df_himpun_clean, log_himpun, summary_clean = clean_data(raw_himpun, "Penghimpunan")
-    df_salur_clean, log_salur, _ = clean_data(raw_salur, "Penyaluran") if not raw_salur.empty else (pd.DataFrame(), [], {})
+    # Muat, validasi, dan bersihkan data; tampilkan pesan ramah jika berkas bermasalah
+    try:
+        hasil = siapkan_data(file_bytes, upload_record.nama_file_asli)
+    except DataFileError as e:
+        st.error(f"❌ Berkas tidak dapat dianalisis. {e}")
+        return
+    except Exception as e:  # jangan tampilkan stack trace ke pengguna
+        logger.exception("Gagal memproses berkas %s", upload_record.nama_file_asli)
+        st.error(
+            "❌ Terjadi kesalahan tak terduga saat memproses berkas. "
+            "Pastikan berkas sesuai template, lalu coba lagi."
+        )
+        return
+    df_himpun_clean = hasil["df_himpun"]
+    log_himpun = hasil["log_himpun"]
+    summary_clean = hasil["summary_himpun"]
+    df_salur_clean = hasil["df_salur"]
+    log_salur = hasil["log_salur"]
     
     # Sidebar Filters Global
     st.sidebar.markdown("### 🔍 Filter Analisis")

@@ -384,6 +384,10 @@ def _hasil_kosong(n: int) -> Tuple[pd.DataFrame, Dict[str, Any]]:
         "fallback_alasan": None,
         "peringatan_keandalan": None,
         "catatan_stabilitas": None,
+        "jendela_bersama": [],
+        "selang_tersedia": False,
+        "selang_label": None,
+        "selang_keterangan": "Selang tidak tersedia: tidak ada peramalan.",
         "perbandingan": [],
         "dasar_pemilihan": "Tidak ada peramalan.",
         "n_bulan": n,
@@ -418,21 +422,55 @@ def _urutan(kode: str) -> int:
     return [k.kode for k in _KANDIDAT].index(kode)
 
 
-def cek_stabilitas(pertama: Dict[str, Any], kedua: Dict[str, Any]) -> Optional[str]:
+def urutkan_kandidat(tersedia: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[int]]:
+    """Urutkan kandidat yang dapat dipilih secara adil.
+
+    Rata-rata MAPE tiap metode dihitung pada JENDELA BERSAMA (titik awal yang
+    berhasil diuji oleh semua kandidat), karena metode yang butuh data latih
+    panjang (mis. Holt-Winters) hanya punya jendela terbaru; membandingkan
+    rata-rata pada jendela berbeda membuat perbandingan bias. Bila jendela
+    bersama < MIN_TITIK_AWAL, dipakai rata-rata masing-masing metode.
+    Pemecah seri: urutan kesederhanaan.
+
+    Returns:
+        (kandidat terurut, daftar titik awal bersama). Setiap kandidat diberi
+        kunci ``mape_bersama`` (None bila jendela bersama tidak cukup).
+    """
+    if not tersedia:
+        return [], []
+    bersama = sorted(set.intersection(*(set(b["mape_per_jendela"]) for b in tersedia)))
+    if len(bersama) < MIN_TITIK_AWAL:
+        bersama = []
+    for b in tersedia:
+        b["mape_bersama"] = (
+            round(float(np.mean([b["mape_per_jendela"][t] for t in bersama])), 2) if bersama else None
+        )
+    kunci = (lambda b: (b["mape_bersama"], _urutan(b["kode"]))) if bersama else (
+        lambda b: (b["mape"], _urutan(b["kode"])))
+    return sorted(tersedia, key=kunci), bersama
+
+
+def cek_stabilitas(pertama: Dict[str, Any], kedua: Dict[str, Any],
+                   jendela: Optional[List[int]] = None) -> Optional[str]:
     """Catatan bila selisih rata-rata MAPE dua metode teratas kecil dibanding sebarannya.
 
     Sebaran = simpangan baku selisih MAPE per jendela pada titik awal yang sama
-    (berpasangan); bila titik awal bersama < 2, dipakai SD terbesar kedua metode.
+    (berpasangan). Jendela yang dipakai = ``jendela`` (dasar peringkat, yaitu
+    jendela bersama semua metode) bila diberikan, selain itu titik awal yang
+    diuji kedua metode; bila < 2, dipakai SD terbesar kedua metode.
     Pilihan dianggap tidak stabil bila |selisih rata-rata| < sebaran tersebut.
     """
     selisih_rata = abs(kedua["mape"] - pertama["mape"])
     bersama = sorted(set(pertama["mape_per_jendela"]) & set(kedua["mape_per_jendela"]))
+    if jendela and len(jendela) >= 2:
+        bersama = [t for t in jendela if t in bersama]
     if len(bersama) >= 2:
         d = np.array([kedua["mape_per_jendela"][t] - pertama["mape_per_jendela"][t] for t in bersama])
+        selisih_rata = abs(float(d.mean()))  # selisih pada jendela yang sama
         sebaran = float(d.std(ddof=1))
         menang = int((d > 0).sum())
-        rincian = (f"{pertama['metode']} lebih baik di {menang} dari {len(bersama)} jendela bersama; "
-                   f"SD selisih per jendela {sebaran:.2f} poin")
+        rincian = (f"{pertama['metode']} lebih baik di {menang} dari {len(bersama)} jendela yang diuji "
+                   f"kedua metode; SD selisih per jendela {sebaran:.2f} poin")
     else:
         sebaran = max(v for v in (pertama["mape_std"], kedua["mape_std"], 0.0) if v is not None)
         rincian = f"SD MAPE terbesar {sebaran:.2f} poin"
@@ -476,10 +514,7 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
     tgl_depan = pd.date_range(tgl[-1] + pd.DateOffset(months=1), periods=periods, freq="MS")
 
     perbandingan, h = bandingkan_metode(y, tgl, tgl_depan)
-    tersedia = sorted(
-        (b for b in perbandingan if b["tersedia"]),
-        key=lambda b: (b["mape"], _urutan(b["kode"])),
-    )
+    tersedia, jendela_bersama = urutkan_kandidat([b for b in perbandingan if b["tersedia"]])
     gangguan = [b for b in perbandingan if b.get("gangguan")]
 
     catatan: List[str] = []
@@ -518,23 +553,33 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
             f"masing-masing memprediksi {h} bulan ke depan."
         )
         lain = [b for b in tersedia if b is not terpilih]
-        dasar = (
-            f"Dipilih karena rata-rata MAPE backtest bergulir terkecil ({mape:.2f}%) "
-            f"dari {len(tersedia)} metode yang dapat diuji"
-        )
-        if lain:
-            dasar += "; pembanding: " + ", ".join(f"{b['metode']} {b['mape']:.2f}%" for b in lain)
-        dasar += "."
-        beda_jendela = [b for b in lain if b["titik_awal"] != terpilih["titik_awal"]]
-        if beda_jendela:
-            dasar += (
-                f" Catatan: rata-rata {terpilih['metode']} dihitung pada {terpilih['n_jendela']} jendela "
-                f"(bulan latih {terpilih['titik_awal'][0]}-{terpilih['titik_awal'][-1]}), sedangkan "
-                + ", ".join(f"{b['metode']} pada {b['n_jendela']} jendela" for b in beda_jendela)
-                + "; jendela yang berbeda membuat perbandingan tidak sepenuhnya setara."
+        if jendela_bersama:
+            dasar = (
+                f"Dipilih karena rata-rata MAPE terkecil pada {len(jendela_bersama)} jendela bersama "
+                f"(bulan latih {jendela_bersama[0]}-{jendela_bersama[-1]}) yang dapat diuji semua "
+                f"{len(tersedia)} metode: {terpilih['mape_bersama']:.2f}%"
             )
+            if lain:
+                dasar += "; pembanding: " + ", ".join(f"{b['metode']} {b['mape_bersama']:.2f}%" for b in lain)
+            dasar += (
+                f". MAPE yang ditampilkan ({mape:.2f}%) adalah rata-rata seluruh {terpilih['n_jendela']} "
+                f"jendela metode terpilih."
+            )
+        else:
+            dasar = (
+                f"Dipilih karena rata-rata MAPE backtest bergulir terkecil ({mape:.2f}%) "
+                f"dari {len(tersedia)} metode yang dapat diuji"
+            )
+            if lain:
+                dasar += "; pembanding: " + ", ".join(f"{b['metode']} {b['mape']:.2f}%" for b in lain)
+            dasar += "."
+            if any(b["titik_awal"] != terpilih["titik_awal"] for b in lain):
+                dasar += (
+                    " Catatan: jendela bersama semua metode kurang dari 2, sehingga rata-rata dihitung pada "
+                    "jendela masing-masing dan perbandingan tidak sepenuhnya setara."
+                )
         if lain:
-            catatan_stabilitas = cek_stabilitas(terpilih, lain[0])
+            catatan_stabilitas = cek_stabilitas(terpilih, lain[0], jendela_bersama)
             if catatan_stabilitas:
                 catatan.append("CATATAN: " + catatan_stabilitas)
     else:
@@ -596,6 +641,7 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
     for b in perbandingan:
         for k in ("gangguan", "nonaktif", "_galat_relatif", "_alasan_gagal"):
             b.pop(k, None)
+        b.setdefault("mape_bersama", None)
 
     pilih = terpilih or {}
     meta = {
@@ -615,6 +661,7 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
         "fallback_alasan": fallback_alasan,
         "peringatan_keandalan": peringatan_keandalan,
         "catatan_stabilitas": catatan_stabilitas,
+        "jendela_bersama": jendela_bersama,
         "selang_tersedia": selang_tersedia,
         "selang_label": LABEL_SELANG if selang_tersedia else None,
         "selang_keterangan": selang_ket,
@@ -653,6 +700,8 @@ def tabel_perbandingan(meta: Optional[Dict[str, Any]], lengkap: bool = False,
         if lengkap:
             r["Median"] = fmt(b["mape_median"])
         r["Terburuk"] = fmt(b["mape_terburuk"])
+        if lengkap:
+            r["Rata-rata (jendela bersama)"] = fmt(b.get("mape_bersama"))
         if lengkap:
             r["SD"] = b["mape_std"] if numerik else ("-" if b["mape_std"] is None else f"{b['mape_std']:.2f}")
         r["Jendela"] = b["n_jendela"]

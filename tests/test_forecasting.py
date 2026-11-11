@@ -134,12 +134,15 @@ class TestTitikAwal:
 
 
 class TestPemilihanMetode:
-    def test_terpilih_adalah_rata_rata_mape_terkecil(self):
+    def test_terpilih_adalah_rata_rata_terkecil_pada_jendela_bersama(self):
         _, meta = forecast_donations(_bulanan(36))
         diuji = [b for b in meta["perbandingan"] if b["tersedia"]]
-        terkecil = min(diuji, key=lambda b: b["mape"])
+        bersama = sorted(set.intersection(*(set(b["mape_per_jendela"]) for b in diuji)))
+        assert meta["jendela_bersama"] == bersama and len(bersama) >= 2
+        rata = {b["kode"]: np.mean([b["mape_per_jendela"][t] for t in bersama]) for b in diuji}
+        terkecil = min(diuji, key=lambda b: (round(rata[b["kode"]], 2), fc._urutan(b["kode"])))
         assert meta["kode_metode"] == terkecil["kode"]
-        assert meta["mape"] == terkecil["mape"]
+        assert meta["mape"] == terkecil["mape"]  # yang tampil: rata-rata seluruh jendela metode itu
         assert [b["kode"] for b in meta["perbandingan"] if b["terpilih"]] == [terkecil["kode"]]
 
     def test_statistik_per_metode(self):
@@ -438,12 +441,20 @@ class TestStabilitas:
         b = self._b("B", {1: 30, 2: 12, 3: 30, 4: 12})
         catatan = fc.cek_stabilitas(a, b)
         assert catatan and "tidak stabil" in catatan
-        assert "lebih baik di 2 dari 4 jendela" in catatan
+        assert "lebih baik di 2 dari 4 jendela yang diuji kedua metode" in catatan
 
     def test_stabil_bila_selalu_lebih_baik_dengan_selisih_besar(self):
         a = self._b("A", {1: 10, 2: 11, 3: 12, 4: 10})
         b = self._b("B", {1: 30, 2: 32, 3: 31, 4: 33})
         assert fc.cek_stabilitas(a, b) is None
+
+    def test_memakai_jendela_dasar_peringkat(self):
+        # Jendela 1-6: A jauh lebih baik; jendela 7-8: A dan B bergantian unggul
+        a = self._b("A", {**{t: 10 for t in range(1, 7)}, 7: 10, 8: 30})
+        b = self._b("B", {**{t: 60 for t in range(1, 7)}, 7: 30, 8: 12})
+        assert fc.cek_stabilitas(a, b) is None  # semua jendela: selisih 37,75 > SD ~23 -> stabil
+        catatan = fc.cek_stabilitas(a, b, [7, 8])  # hanya jendela dasar peringkat
+        assert catatan and "lebih baik di 1 dari 2 jendela" in catatan
 
     def test_tanpa_jendela_bersama_pakai_sd_terbesar(self):
         a = self._b("A", {1: 10, 2: 30})
@@ -455,7 +466,7 @@ class TestStabilitas:
         y = [100, 140, 90, 150, 95, 145, 100, 150, 90, 140, 100, 150, 95, 145, 100, 150]
         _, meta = forecast_donations(_dari_nilai(y))
         diuji = sorted((b for b in meta["perbandingan"] if b["tersedia"]), key=lambda b: b["mape"])
-        harapan = fc.cek_stabilitas(diuji[0], diuji[1])
+        harapan = fc.cek_stabilitas(diuji[0], diuji[1], meta["jendela_bersama"])
         assert harapan is not None, "kasus uji harus tidak stabil"
         assert meta["catatan_stabilitas"] == harapan
         assert "CATATAN: " + harapan in meta["warning"]
@@ -472,3 +483,35 @@ def test_performa_di_bawah_15_detik(n):
     df, meta = forecast_donations(_bulanan(n))
     assert time.perf_counter() - mulai < 15
     assert len(df) == 12 and meta["n_bulan"] == n
+
+
+
+class TestKeadilanJendela:
+    @staticmethod
+    def _b(kode, per_jendela):
+        return {"kode": kode, "metode": kode, "mape": float(np.mean(list(per_jendela.values()))),
+                "mape_per_jendela": per_jendela}
+
+    def test_metode_dengan_jendela_lebih_sedikit_tidak_diuntungkan(self):
+        # tren_linier: jendela awal sulit (50) & akhir mudah (10) -> rata-rata sendiri 30
+        # holt_winters: hanya jendela akhir, 20 -> rata-rata sendiri 20 (tampak lebih baik)
+        lin = self._b("tren_linier", {1: 50, 2: 50, 3: 10, 4: 10})
+        hw = self._b("holt_winters", {3: 20, 4: 20})
+        urut, bersama = fc.urutkan_kandidat([hw, lin])
+        assert bersama == [3, 4]
+        assert [b["kode"] for b in urut] == ["tren_linier", "holt_winters"]  # 10 vs 20 pada jendela sama
+        assert lin["mape_bersama"] == 10 and hw["mape_bersama"] == 20
+
+    def test_jendela_bersama_kurang_dari_dua_pakai_rata_rata_sendiri(self):
+        a = self._b("tren_linier", {1: 30, 2: 30})
+        b = self._b("rata_bergerak", {2: 40, 3: 40})
+        urut, bersama = fc.urutkan_kandidat([b, a])
+        assert bersama == []
+        assert [x["kode"] for x in urut] == ["tren_linier", "rata_bergerak"]
+        assert a["mape_bersama"] is None
+
+    def test_pemecah_seri_kesederhanaan(self):
+        a = self._b("tren_linier", {1: 10, 2: 10})
+        b = self._b("rata_bergerak", {1: 10, 2: 10})
+        urut, _ = fc.urutkan_kandidat([a, b])
+        assert urut[0]["kode"] == "rata_bergerak"

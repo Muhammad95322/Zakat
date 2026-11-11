@@ -44,6 +44,7 @@ def generate_excel_report(
             tabel = tabel_perbandingan(forecast_meta, lengkap=True, numerik=True).rename(columns={
                 "Rata-rata MAPE": "Rata-rata MAPE (%)", "Median": "Median MAPE (%)",
                 "Terburuk": "MAPE Terburuk (%)", "SD": "SD MAPE (poin)",
+                "Rata-rata (jendela bersama)": "Rata-rata MAPE jendela bersama (%)",
             })
             tabel.to_excel(writer, sheet_name="Perbandingan Metode", index=False)
             ringkas = pd.DataFrame([

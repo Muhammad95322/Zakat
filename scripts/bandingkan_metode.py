@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.analysis import get_trend_analysis  # noqa: E402
 from src.cleaning import clean_data  # noqa: E402
-from src.forecasting import forecast_donations, format_mape  # noqa: E402
+from src.forecasting import forecast_donations, format_mape_lengkap  # noqa: E402
 from src.sample_data import generate_sample_data  # noqa: E402
 
 
@@ -34,13 +34,17 @@ def main() -> int:
     _, meta = forecast_donations(monthly)
 
     print(f"Data contoh: {args.transaksi} transaksi, {meta['n_bulan']} bulan, horizon uji {meta['bulan_uji']} bulan")
-    print(f"{'Metode':60s} {'Rata2':>8s} {'Median':>8s} {'Terburuk':>9s} {'SD':>7s} {'Jendela':>7s} {'Gagal':>5s}  Status")
+    print(f"{'Metode':60s} {'Rata2':>8s} {'Median':>8s} {'Terburuk':>9s} {'SD':>7s} {'Bersama':>8s} {'Jendela':>7s} {'Gagal':>5s}  Status")
     for b in meta.get("perbandingan", []):
         f = lambda v: "-" if v is None else f"{v:.2f}"
         tanda = "TERPILIH" if b["terpilih"] else b["status"]
         print(f"{b['metode']:60s} {f(b['mape']):>8s} {f(b['mape_median']):>8s} {f(b['mape_terburuk']):>9s} "
-              f"{f(b['mape_std']):>7s} {b['n_jendela']:>7} {b['n_gagal']:>5}  {tanda}")
-    print(f"\nMetode terpilih: {meta['metode']} | rata-rata MAPE: {format_mape(meta)}")
+              f"{f(b['mape_std']):>7s} {f(b.get('mape_bersama')):>8s} {b['n_jendela']:>7} {b['n_gagal']:>5}  {tanda}")
+    jb = meta.get("jendela_bersama") or []
+    if jb:
+        print(f"(Bersama = rata-rata pada {len(jb)} jendela yang diuji semua metode, bulan latih {jb[0]}-{jb[-1]}; "
+              "dasar peringkat)")
+    print(f"\nMetode terpilih: {meta['metode']} | rata-rata MAPE: {format_mape_lengkap(meta)}")
     for kunci in ("catatan_stabilitas", "peringatan_keandalan", "fallback_alasan", "selang_keterangan"):
         if meta.get(kunci):
             print(f"{kunci}: {meta[kunci]}")

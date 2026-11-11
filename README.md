@@ -181,6 +181,33 @@ Zakat/
 
 ---
 
+## 🔎 Investigasi Selisih MAPE (asal angka 218%)
+
+Backtest per metode (6 bulan terakhir sebagai data uji, 30 bulan pertama sebagai data latih), dijalankan
+dengan kode peramalan versi PR #1 pada data sintetis `generate_sample_data()` (biji acak 42):
+
+| Metode | Bulan latih | Bulan uji | MAPE — data bawaan (5000 transaksi) | MAPE — data uji UI (1500 transaksi) |
+|---|---|---|---|---|
+| Rata-rata bergerak 3 bulan | 30 | 6 | 18,20% | 38,40% |
+| Tren linier sederhana | 30 | 6 | 21,95% | **218,40%** |
+| Tren linier + faktor musiman bulanan | 30 | 6 | 46,22% | 101,76% |
+| Holt-Winters (statsmodels) | 30 | 6 | 72,91% | 82,12% |
+
+**Kesimpulan:** angka 218% *bisa direproduksi*, tetapi bukan dari data contoh bawaan. Angka itu berasal dari
+uji UI di laporan PR #1 yang memakai `generate_sample_data(1500, 200)` dengan statsmodels diblokir. Biji acaknya
+sama (42), tetapi jumlah transaksinya berbeda sehingga deret bulanannya juga lain: penerimaan 6 bulan uji di data
+kecil hanya Rp 40–112 jt, sedangkan tren linier yang dilatih pada 30 bulan sebelumnya masih memproyeksikan jauh di atasnya.
+Ringkasan PR #1 keliru karena menyandingkan angka itu dengan MAPE Holt-Winters dari data lain, seolah keduanya dari
+data yang sama. Pada data bawaan yang sama, tren linier (21,95%) jauh lebih baik daripada Holt-Winters (72,91%),
+dan rata-rata bergerak (18,20%) lebih baik lagi. Inilah alasan pemilihan metode diubah agar berbasis backtest.
+
+Catatan ukuran data contoh: generator bawaan memakai 5000 transaksi, tombol "Muat Data Contoh" di UI memakai 2000,
+dan `data/sample/data_contoh.xlsx` dibuat dari 2000. Hasil MAPE berbeda untuk tiap ukuran.
+
+Reproduksi: `python scripts/bandingkan_metode.py` (lihat juga `--transaksi 1500`).
+
+---
+
 ## 📝 Asumsi & Catatan Metode
 
 Asumsi yang diambil selama perbaikan rilis (silakan koreksi bila tidak sesuai kebutuhan lembaga):

@@ -197,6 +197,5 @@ def save_sample_and_template_files():
     print(f"Template disimpan ke: {tmpl_path}")
 
 if __name__ == "__main__":
-    from typing import Tuple
     save_sample_and_template_files()
 

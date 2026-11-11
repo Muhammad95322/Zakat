@@ -2,6 +2,7 @@ streamlit>=1.35.0
 pandas>=2.2.0
 numpy>=1.26.0
 scipy>=1.13.0
+statsmodels>=0.14
 plotly>=5.22.0
 openpyxl>=3.1.2
 xlsxwriter>=3.2.0

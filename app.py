@@ -8,6 +8,15 @@ BASE_DIR = Path(__file__).parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
+# Validasi konfigurasi keamanan sebelum apa pun dijalankan
+from src.config import settings, ConfigError
+try:
+    settings.validate()
+except ConfigError as e:
+    print(f"[Zakat Insight] Startup dibatalkan: {e}", file=sys.stderr)
+    st.error(f"Aplikasi tidak dapat dijalankan karena konfigurasi tidak aman: {e}")
+    st.stop()
+
 # Inisialisasi Database saat Startup
 try:
     from src.database import init_db

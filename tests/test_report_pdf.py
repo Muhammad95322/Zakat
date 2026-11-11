@@ -67,3 +67,13 @@ def test_pdf_karakter_non_latin(analisis):
     stats, _, _ = analisis
     pdf = generate_pdf_report("Lembaga “Al-Ikhlas” — ≥ 2", {**stats, "interpretasi": "Tes \U0001F31F"})
     assert pdf.startswith(b"%PDF")
+
+
+def test_pdf_dengan_peringatan_penyaluran(analisis):
+    """Regresi: beberapa multi_cell berturut-turut (peringatan penyaluran) tidak boleh error."""
+    stats, trend, comp = analisis
+    dist = {"status": "ready", "total_salur": 1_000_000, "rasio": 60.0, "saldo": 500_000,
+            "warnings": ["Peringatan pertama yang cukup panjang.", "Peringatan kedua."]}
+    pdf = generate_pdf_report("Lembaga Uji", stats, dist, None, trend["monthly"], comp["jenis_dana"])
+    _, teks = _teks_pdf(pdf)
+    assert "Peringatan kedua" in teks

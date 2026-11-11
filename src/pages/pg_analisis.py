@@ -148,7 +148,7 @@ def show():
         st.info(f"💡 **Interpretasi Hasil:** {stats['interpretasi']}")
         
         if not trend["monthly"].empty:
-            st.plotly_chart(chart_trend_bulanan(trend["monthly"]), use_container_width=True)
+            st.plotly_chart(chart_trend_bulanan(trend["monthly"]), use_container_width=True, key="chart_analisis_1")
             
         # Kualitas Data Box
         with st.expander("🔍 Laporan Kualitas Data Hasil Pembersihan"):
@@ -162,7 +162,7 @@ def show():
         st.markdown("### Analisis Tren Waktu & Pola Musiman")
         st.info(f"📅 {trend['interpretasi']}")
         if not trend["monthly"].empty:
-            st.plotly_chart(chart_trend_bulanan(trend["monthly"]), use_container_width=True)
+            st.plotly_chart(chart_trend_bulanan(trend["monthly"]), use_container_width=True, key="chart_analisis_2")
             st.dataframe(trend["monthly"].rename(columns={
                 "periode_str": "Bulan", "total_dana": "Total Dana (Rp)",
                 "jumlah_transaksi": "Transaksi", "mom_growth": "Pertumbuhan MoM (%)"
@@ -174,13 +174,13 @@ def show():
         col_d1, col_d2 = st.columns(2)
         with col_d1:
             if "jenis_dana" in comp:
-                st.plotly_chart(chart_komposisi_donut(comp["jenis_dana"], "jenis_dana", "Sebaran Jenis Dana ZIS"), use_container_width=True)
+                st.plotly_chart(chart_komposisi_donut(comp["jenis_dana"], "jenis_dana", "Sebaran Jenis Dana ZIS"), use_container_width=True, key="chart_analisis_3")
         with col_d2:
             if "kanal" in comp:
-                st.plotly_chart(chart_komposisi_donut(comp["kanal"], "kanal", "Kanal Metode Pembayaran"), use_container_width=True)
+                st.plotly_chart(chart_komposisi_donut(comp["kanal"], "kanal", "Kanal Metode Pembayaran"), use_container_width=True, key="chart_analisis_4")
                 
         if "kabupaten_kota" in comp:
-            st.plotly_chart(chart_bar_wilayah(comp["kabupaten_kota"]), use_container_width=True)
+            st.plotly_chart(chart_bar_wilayah(comp["kabupaten_kota"]), use_container_width=True, key="chart_analisis_5")
             
         if "penjelasan" in stat_test:
             st.caption(f"🧪 **Uji Signifikansi Statistik:** {stat_test['penjelasan']}")
@@ -196,7 +196,7 @@ def show():
                 seg_counts = pd.DataFrame(list(rfm_meta["segmen_counts"].items()), columns=["Segmen", "Jumlah Muzaki"])
                 st.dataframe(seg_counts, use_container_width=True)
             with c_rfm2:
-                st.plotly_chart(chart_lorenz(rfm_meta["lorenz_x"], rfm_meta["lorenz_y"], rfm_meta["gini_index"]), use_container_width=True)
+                st.plotly_chart(chart_lorenz(rfm_meta["lorenz_x"], rfm_meta["lorenz_y"], rfm_meta["gini_index"]), use_container_width=True, key="chart_analisis_6")
                 
             st.markdown("#### Daftar Donatur & Kategori")
             st.dataframe(rfm_df[["nama", "terakhir_donasi", "frequency", "monetary", "segmen"]].rename(columns={
@@ -236,7 +236,7 @@ def show():
             st.info(forecast_meta["warning"])
             
         if not forecast_df.empty:
-            st.plotly_chart(chart_forecasting(trend["monthly"], forecast_df), use_container_width=True)
+            st.plotly_chart(chart_forecasting(trend["monthly"], forecast_df), use_container_width=True, key="chart_analisis_7")
             st.dataframe(forecast_df.rename(columns={
                 "periode": "Bulan", "proyeksi": "Proyeksi Donasi (Rp)",
                 "batas_bawah": "Batas Bawah (Rp)", "batas_atas": "Batas Atas (Rp)"

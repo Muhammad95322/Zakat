@@ -89,7 +89,7 @@ def generate_pdf_report(
     
     pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(51, 65, 85)
-    pdf.multi_cell(0, 6, _aman(summary_stats.get("interpretasi", "Belum ada catatan interpretasi.")))
+    pdf.multi_cell(0, 6, _aman(summary_stats.get("interpretasi", "Belum ada catatan interpretasi.")), new_x="LMARGIN", new_y="NEXT")
     pdf.ln(5)
     
     # 3. Tabel Indikator Kinerja Utama (KPI)
@@ -131,11 +131,11 @@ def generate_pdf_report(
             f"dengan rasio penyaluran sebesar {distribution_stats.get('rasio', 0)}%. "
             f"Estimasi saldo kas belum tersalurkan adalah {format_rupiah(distribution_stats.get('saldo', 0))}."
         )
-        pdf.multi_cell(0, 6, _aman(salur_text))
+        pdf.multi_cell(0, 6, _aman(salur_text), new_x="LMARGIN", new_y="NEXT")
         
         for w in distribution_stats.get("warnings", []):
             pdf.set_text_color(180, 83, 9)
-            pdf.multi_cell(0, 5, _aman(f"- {w}"))
+            pdf.multi_cell(0, 5, _aman(f"- {w}"), new_x="LMARGIN", new_y="NEXT")
             
         pdf.ln(5)
         
@@ -182,7 +182,7 @@ def generate_pdf_report(
         )
         if forecast_meta.get("fallback"):
             metode_text += f"\n8. PERINGATAN: {forecast_meta.get('fallback_alasan')}"
-    pdf.multi_cell(0, 4, _aman(metode_text))
+    pdf.multi_cell(0, 4, _aman(metode_text), new_x="LMARGIN", new_y="NEXT")
     
     return bytes(pdf.output())
 

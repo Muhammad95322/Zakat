@@ -259,7 +259,8 @@ def show():
                 st.caption(forecast_meta["selang_keterangan"])
             st.dataframe(forecast_df.rename(columns={
                 "periode": "Bulan", "proyeksi": "Proyeksi Donasi (Rp)",
-                "batas_bawah": "Batas Bawah (Rp)", "batas_atas": "Batas Atas (Rp)"
+                "batas_bawah": "Batas Bawah (Rp)", "batas_atas": "Batas Atas (Rp)",
+                "status_selang": "Status Selang"
             }), use_container_width=True)
 
     # TAB 7: Laporan & Ekspor

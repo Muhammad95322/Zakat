@@ -333,28 +333,38 @@ class TestSelangDariGalatBacktest:
         bawah, atas = fc.hitung_selang(np.array([100.0, 0.0, -5.0]), [-3.0, -2.5, -2.0] * 4)
         assert (bawah >= 0).all() and (atas >= bawah).all()
 
-    def test_selang_proporsional_terhadap_proyeksi(self):
+    def test_selang_per_bulan_dari_langkah_horizon_masing_masing(self):
         df, meta = forecast_donations(_bulanan(36))
         assert meta["selang_tersedia"] is True
         assert meta["selang_label"] == fc.LABEL_SELANG
-        rasio_bawah = df["batas_bawah"] / df["proyeksi"]
-        rasio_atas = df["batas_atas"] / df["proyeksi"]
-        assert np.allclose(rasio_bawah, rasio_bawah.iloc[0])  # kuantil galat yang sama tiap bulan
-        assert np.allclose(rasio_atas, rasio_atas.iloc[0])
-        assert (df["batas_bawah"] >= 0).all()
-        assert (df["batas_atas"] >= df["batas_bawah"]).all()
+        assert [r["langkah"] for r in meta["selang_per_bulan"]] == list(range(1, 13))
+        ada = df["status_selang"] == "tersedia"
+        assert ada.any()
+        assert (df.loc[ada, "batas_bawah"] >= 0).all()
+        assert (df.loc[ada, "batas_atas"] >= df.loc[ada, "batas_bawah"]).all()
+        assert df.loc[~ada, ["batas_bawah", "batas_atas"]].isna().all().all()
 
-    def test_tren_sempurna_selang_nol(self):
+    def test_tren_sempurna_selang_nol_dan_cakupan(self):
+        # 12 bulan garis lurus: tren linier tepat -> galat 0 -> selang = proyeksi.
+        # Langkah h dicapai titik awal t = 3..12-h: h<=4 punya >= 6 galat, h=5..9 kurang,
+        # h>=10 tidak ada titik awal sama sekali (di luar cakupan backtest).
         df, meta = forecast_donations(_dari_nilai([100 + 10 * i for i in range(12)]))
-        assert meta["kode_metode"] == "tren_linier" and meta["selang_tersedia"]
-        assert np.allclose(df["batas_bawah"], df["proyeksi"]) and np.allclose(df["batas_atas"], df["proyeksi"])
+        assert meta["kode_metode"] == "tren_linier"
+        status = df["status_selang"].tolist()
+        assert status[:4] == ["tersedia"] * 4
+        assert all(s.startswith("tidak tersedia") for s in status[4:9])
+        assert status[9:] == ["di luar cakupan backtest"] * 3
+        assert np.allclose(df["batas_bawah"].iloc[:4], df["proyeksi"].iloc[:4])
+        assert np.allclose(df["batas_atas"].iloc[:4], df["proyeksi"].iloc[:4])
+        assert df[["batas_bawah", "batas_atas"]].iloc[4:].isna().all().all()
 
     def test_galat_terlalu_sedikit_selang_tidak_tersedia(self):
-        df, meta = forecast_donations(_bulanan(7))  # H=3, 2 titik awal -> 6 galat < 10
+        df, meta = forecast_donations(_bulanan(7))  # titik awal 3..6 -> langkah 1 hanya 4 galat
         assert meta["mape"] is not None
         assert meta["selang_tersedia"] is False
-        assert "butuh minimal 10" in meta["selang_keterangan"]
         assert df["batas_bawah"].isna().all() and df["batas_atas"].isna().all()
+        assert "kurang dari 6 per langkah" in meta["selang_keterangan"]
+        assert "di luar cakupan backtest" in meta["selang_keterangan"]
         assert meta["selang_keterangan"] in meta["warning"]
 
     def test_tanpa_backtest_selang_tidak_tersedia(self):
@@ -362,6 +372,7 @@ class TestSelangDariGalatBacktest:
         assert meta["selang_tersedia"] is False
         assert "Selang tidak tersedia" in meta["selang_keterangan"]
         assert df["batas_bawah"].isna().all()
+        assert set(df["status_selang"]) == {"di luar cakupan backtest"}
 
     def test_grafik_tanpa_selang_tetap_jalan(self):
         from src.charts import chart_forecasting
@@ -371,7 +382,6 @@ class TestSelangDariGalatBacktest:
         assert chart_peramalan_png(data, df, meta["selang_label"]).startswith(b"\x89PNG")
         fig = chart_forecasting(data, df, meta["selang_label"])
         assert all(tr.name != fc.LABEL_SELANG for tr in fig.data)
-
 
 def _gagal_di(kode, titik_gagal):
     """Bungkus kandidat agar melempar _ModelGagal pada titik awal (panjang latih) tertentu."""

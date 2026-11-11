@@ -13,7 +13,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.analysis import get_trend_analysis  # noqa: E402
 from src.cleaning import clean_data  # noqa: E402
-from src.forecasting import forecast_donations, format_mape_lengkap, ringkasan_catatan_metode  # noqa: E402
+from src.forecasting import (  # noqa: E402
+    forecast_donations, format_mape_lengkap, ringkasan_catatan_metode, ringkasan_koreksi_bias,
+)
 from src.sample_data import generate_sample_data  # noqa: E402
 
 
@@ -54,6 +56,9 @@ def main() -> int:
             f = lambda v: "-" if v is None else f"{v:.3f}"
             print(f"{b['langkah']:>3} {b['n_rasio']:>3} {f(b['median_rasio']):>8s} {f(b['q10_rasio']):>7s} "
                   f"{f(b['q90_rasio']):>7s}  {b['arah']}")
+    print("Koreksi bias:", ringkasan_koreksi_bias(meta))
+    k = meta.get("konsistensi_selang") or {}
+    print(f"Proyeksi titik di luar selang: {len(k.get('bulan_di_luar') or [])} dari {k.get('n_bulan_selang', 0)} bulan")
     for kunci in ("catatan_stabilitas", "peringatan_keandalan", "fallback_alasan", "selang_keterangan"):
         if meta.get(kunci):
             print(f"{kunci}: {meta[kunci]}")

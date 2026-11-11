@@ -41,7 +41,24 @@ def generate_excel_report(
         # Sheet 4b: Perbandingan metode peramalan (jika ada)
         if forecast_meta and forecast_meta.get("perbandingan"):
             from src.forecasting import tabel_perbandingan
-            tabel_perbandingan(forecast_meta).to_excel(writer, sheet_name="Perbandingan Metode", index=False)
+            tabel = tabel_perbandingan(forecast_meta, lengkap=True, numerik=True).rename(columns={
+                "Rata-rata MAPE": "Rata-rata MAPE (%)", "Median": "Median MAPE (%)",
+                "Terburuk": "MAPE Terburuk (%)", "SD": "SD MAPE (poin)",
+            })
+            tabel.to_excel(writer, sheet_name="Perbandingan Metode", index=False)
+            ringkas = pd.DataFrame([
+                {"Butir": "Metode terpilih", "Nilai": forecast_meta.get("metode")},
+                {"Butir": "Rata-rata MAPE backtest bergulir (%)", "Nilai": forecast_meta.get("mape")},
+                {"Butir": "SD MAPE (poin)", "Nilai": forecast_meta.get("mape_std")},
+                {"Butir": "MAPE terbaik (%)", "Nilai": forecast_meta.get("mape_terbaik")},
+                {"Butir": "MAPE terburuk (%)", "Nilai": forecast_meta.get("mape_terburuk")},
+                {"Butir": "Jumlah jendela", "Nilai": forecast_meta.get("n_jendela")},
+                {"Butir": "Horizon uji (bulan)", "Nilai": forecast_meta.get("bulan_uji")},
+                {"Butir": "Dasar pemilihan", "Nilai": forecast_meta.get("dasar_pemilihan")},
+                {"Butir": "Catatan stabilitas", "Nilai": forecast_meta.get("catatan_stabilitas") or "-"},
+                {"Butir": "Peringatan keandalan", "Nilai": forecast_meta.get("peringatan_keandalan") or "-"},
+            ])
+            ringkas.to_excel(writer, sheet_name="Ringkasan Peramalan", index=False)
 
         # Sheet 5: Log Pembersihan
         if cleaning_log:
@@ -62,7 +79,7 @@ def generate_excel_report(
             for col in ws.columns:
                 max_len = max(len(str(cell.value or '')) for cell in col)
                 col_letter = get_column_letter(col[0].column)
-                ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+                ws.column_dimensions[col_letter].width = min(max(max_len + 4, 12), 80)
                 
     output.seek(0)
     return output.getvalue()

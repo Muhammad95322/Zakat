@@ -6,7 +6,7 @@ from typing import Optional
 import pandas as pd
 from fpdf import FPDF
 
-from src.forecasting import format_mape, tabel_perbandingan
+from src.forecasting import format_mape, format_mape_lengkap, tabel_perbandingan
 from src.utils import format_rupiah, format_tanggal
 
 
@@ -58,7 +58,7 @@ def _bagian_pemilihan_metode(pdf: FPDF, meta: dict) -> None:
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(51, 65, 85)
     pdf.multi_cell(0, 5, _aman(
-        f"Metode terpilih: {meta.get('metode')} | MAPE backtest: {format_mape(meta)}. "
+        f"Metode terpilih: {meta.get('metode')} | MAPE backtest: {format_mape_lengkap(meta)}. "
         f"{meta.get('dasar_pemilihan', '')}"
     ), new_x="LMARGIN", new_y="NEXT")
     if meta.get("peringatan_keandalan"):
@@ -67,12 +67,15 @@ def _bagian_pemilihan_metode(pdf: FPDF, meta: dict) -> None:
     if meta.get("fallback_alasan"):
         pdf.set_text_color(180, 83, 9)
         pdf.multi_cell(0, 5, _aman("PERINGATAN: " + meta["fallback_alasan"]), new_x="LMARGIN", new_y="NEXT")
+    if meta.get("catatan_stabilitas"):
+        pdf.set_text_color(51, 65, 85)
+        pdf.multi_cell(0, 5, _aman("CATATAN: " + meta["catatan_stabilitas"]), new_x="LMARGIN", new_y="NEXT")
     tabel = tabel_perbandingan(meta)
     if not tabel.empty:
         pdf.ln(1)
         pdf.set_text_color(51, 65, 85)
         pdf.set_font("Helvetica", "", 7.5)
-        with pdf.table(col_widths=(62, 22, 14, 12, 80), text_align=("LEFT", "RIGHT", "RIGHT", "RIGHT", "LEFT"),
+        with pdf.table(col_widths=(62, 20, 18, 14, 76), text_align=("LEFT", "RIGHT", "RIGHT", "RIGHT", "LEFT"),
                        line_height=4.2) as t:
             t.row([_aman(c) for c in tabel.columns])
             for _, r in tabel.iterrows():
@@ -214,7 +217,7 @@ def generate_pdf_report(
             f"\n6. Peramalan: metode {forecast_meta.get('metode', '-')}, berdasarkan "
             f"{forecast_meta.get('n_bulan', '-')} bulan data historis. Interval ~95% = proyeksi +/- 1,96 x "
             f"simpangan baku residual model (asumsi galat kira-kira normal dan pola historis berlanjut).\n"
-            f"7. Estimasi galat (MAPE backtest): {format_mape(forecast_meta)}. "
+            f"7. Estimasi galat (MAPE backtest): {format_mape(forecast_meta)} (rata-rata backtest bergulir). "
             f"{forecast_meta.get('mape_keterangan', '')} {forecast_meta.get('dasar_pemilihan', '')}"
         )
         if forecast_meta.get("peringatan_keandalan"):

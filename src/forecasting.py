@@ -36,6 +36,7 @@ HORIZON_UJI = 6          # horizon backtest bawaan (bulan)
 _MIN_HORIZON = 3         # horizon terpendek yang masih dipakai untuk data pendek
 MAKS_TITIK_AWAL = 12     # jumlah titik awal (terbaru) yang diuji
 MIN_TITIK_AWAL = 2       # minimal titik awal valid agar metode dianggap teruji
+BATAS_PORSI_GAGAL = 1 / 3  # gagal di lebih dari porsi ini -> "tidak andal"
 _MIN_BULAN_DATA = 3
 # Alias kompatibilitas nama lama
 _MAKS_BULAN_UJI = HORIZON_UJI
@@ -57,6 +58,20 @@ def format_mape(meta: Optional[Dict[str, Any]]) -> str:
     if not meta or meta.get("mape") is None:
         return MAPE_TIDAK_TERSEDIA
     return f"{meta['mape']:.2f}%"
+
+
+def format_mape_lengkap(meta: Optional[Dict[str, Any]]) -> str:
+    """Rata-rata MAPE lintas titik awal beserta sebarannya, mis.
+    "26.86% (rata-rata 12 jendela; SD 5.61; rentang 18.40-37.15%)"."""
+    dasar = format_mape(meta)
+    if dasar == MAPE_TIDAK_TERSEDIA:
+        return dasar
+    bagian = [f"rata-rata {meta.get('n_jendela', 0)} jendela"]
+    if meta.get("mape_std") is not None:
+        bagian.append(f"SD {meta['mape_std']:.2f}")
+    if meta.get("mape_terbaik") is not None and meta.get("mape_terburuk") is not None:
+        bagian.append(f"rentang {meta['mape_terbaik']:.2f}-{meta['mape_terburuk']:.2f}%")
+    return f"{dasar} ({'; '.join(bagian)})"
 
 
 # ---------------------------------------------------------------------------
@@ -237,11 +252,12 @@ def _prediksi_backtest(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex,
 
 def _ringkas(nilai: List[float]) -> Dict[str, Optional[float]]:
     if not nilai:
-        return {"mape": None, "mape_median": None, "mape_terburuk": None, "mape_std": None}
+        return {"mape": None, "mape_median": None, "mape_terbaik": None, "mape_terburuk": None, "mape_std": None}
     a = np.asarray(nilai, dtype=float)
     return {
         "mape": round(float(a.mean()), 2),
         "mape_median": round(float(np.median(a)), 2),
+        "mape_terbaik": round(float(a.min()), 2),
         "mape_terburuk": round(float(a.max()), 2),
         "mape_std": round(float(a.std(ddof=1)), 2) if len(a) > 1 else None,
     }
@@ -309,6 +325,15 @@ def _uji_kandidat(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex, titi
     baris["_galat_relatif"] = galat_relatif
     baris["_alasan_gagal"] = alasan_gagal
     baris.update(_ringkas(list(baris["mape_per_jendela"].values())))
+    n_coba = baris["n_jendela"] + baris["n_gagal"]
+    if baris["n_gagal"] and baris["n_gagal"] > BATAS_PORSI_GAGAL * n_coba:
+        baris["andal"] = False
+        baris["status"] = (
+            f"tidak andal: gagal di {baris['n_gagal']} dari {n_coba} titik awal "
+            f"(lebih dari sepertiga; contoh alasan: {alasan_gagal[0]})"
+        )
+        baris["gangguan"] = True
+        return baris  # statistik dari jendela yang berhasil tetap ditampilkan, tetapi tidak dipilih
     if baris["n_jendela"] < MIN_TITIK_AWAL:
         detail = f"; gagal di {baris['n_gagal']} titik awal ({alasan_gagal[0]})" if alasan_gagal else ""
         baris["status"] = (
@@ -318,7 +343,7 @@ def _uji_kandidat(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex, titi
         if alasan_gagal:
             baris["gangguan"] = True
         return baris
-    baris["status"] = "diuji"
+    baris["status"] = "diuji" if not baris["n_gagal"] else f"diuji (gagal di {baris['n_gagal']} dari {n_coba} titik awal)"
     baris["tersedia"] = True
     return baris
 
@@ -373,6 +398,33 @@ def _tanggal_bulanan(monthly_df: pd.DataFrame) -> pd.DatetimeIndex:
 
 def _urutan(kode: str) -> int:
     return [k.kode for k in _KANDIDAT].index(kode)
+
+
+def cek_stabilitas(pertama: Dict[str, Any], kedua: Dict[str, Any]) -> Optional[str]:
+    """Catatan bila selisih rata-rata MAPE dua metode teratas kecil dibanding sebarannya.
+
+    Sebaran = simpangan baku selisih MAPE per jendela pada titik awal yang sama
+    (berpasangan); bila titik awal bersama < 2, dipakai SD terbesar kedua metode.
+    Pilihan dianggap tidak stabil bila |selisih rata-rata| < sebaran tersebut.
+    """
+    selisih_rata = abs(kedua["mape"] - pertama["mape"])
+    bersama = sorted(set(pertama["mape_per_jendela"]) & set(kedua["mape_per_jendela"]))
+    if len(bersama) >= 2:
+        d = np.array([kedua["mape_per_jendela"][t] - pertama["mape_per_jendela"][t] for t in bersama])
+        sebaran = float(d.std(ddof=1))
+        menang = int((d > 0).sum())
+        rincian = (f"{pertama['metode']} lebih baik di {menang} dari {len(bersama)} jendela bersama; "
+                   f"SD selisih per jendela {sebaran:.2f} poin")
+    else:
+        sebaran = max(v for v in (pertama["mape_std"], kedua["mape_std"], 0.0) if v is not None)
+        rincian = f"SD MAPE terbesar {sebaran:.2f} poin"
+    if selisih_rata < sebaran:
+        return (
+            f"Pilihan metode tidak stabil: selisih rata-rata MAPE {pertama['metode']} dan "
+            f"{kedua['metode']} hanya {selisih_rata:.2f} poin, lebih kecil dari sebarannya ({rincian}). "
+            "Kedua metode praktis setara; metode terpilih bisa berganti bila data bertambah."
+        )
+    return None
 
 
 def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.DataFrame, Dict[str, Any]]:
@@ -437,6 +489,7 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
             catatan.append(f"PERINGATAN: {b['metode']} gagal dilatih pada seluruh data ({exc}).")
 
     titik = titik_awal_backtest(n)
+    catatan_stabilitas = None
     if terpilih is not None:
         terpilih["terpilih"] = True
         kode = terpilih["kode"]
@@ -454,6 +507,18 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
         if lain:
             dasar += "; pembanding: " + ", ".join(f"{b['metode']} {b['mape']:.2f}%" for b in lain)
         dasar += "."
+        beda_jendela = [b for b in lain if b["titik_awal"] != terpilih["titik_awal"]]
+        if beda_jendela:
+            dasar += (
+                f" Catatan: rata-rata {terpilih['metode']} dihitung pada {terpilih['n_jendela']} jendela "
+                f"(bulan latih {terpilih['titik_awal'][0]}-{terpilih['titik_awal'][-1]}), sedangkan "
+                + ", ".join(f"{b['metode']} pada {b['n_jendela']} jendela" for b in beda_jendela)
+                + "; jendela yang berbeda membuat perbandingan tidak sepenuhnya setara."
+            )
+        if lain:
+            catatan_stabilitas = cek_stabilitas(terpilih, lain[0])
+            if catatan_stabilitas:
+                catatan.append("CATATAN: " + catatan_stabilitas)
     else:
         kode = _METODE_SEDERHANA
         pred, residual = _METODE[kode].fungsi(y, tgl, tgl_depan)
@@ -502,6 +567,7 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
         "warning": " ".join(catatan),
         "mape": mape,
         "mape_median": pilih.get("mape_median"),
+        "mape_terbaik": pilih.get("mape_terbaik"),
         "mape_terburuk": pilih.get("mape_terburuk"),
         "mape_std": pilih.get("mape_std"),
         "n_jendela": pilih.get("n_jendela", 0),
@@ -511,7 +577,7 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
         "fallback": fallback_alasan is not None,
         "fallback_alasan": fallback_alasan,
         "peringatan_keandalan": peringatan_keandalan,
-        "catatan_stabilitas": None,
+        "catatan_stabilitas": catatan_stabilitas,
         "perbandingan": perbandingan,
         "dasar_pemilihan": dasar,
         "n_bulan": n,
@@ -523,13 +589,35 @@ def _fmt_persen(v: Optional[float]) -> str:
     return MAPE_TIDAK_TERSEDIA if v is None else f"{v:.2f}%"
 
 
-def tabel_perbandingan(meta: Optional[Dict[str, Any]]) -> pd.DataFrame:
-    """Tabel perbandingan MAPE siap tampil (UI/PDF/Excel)."""
+def tabel_perbandingan(meta: Optional[Dict[str, Any]], lengkap: bool = False,
+                       numerik: bool = False) -> pd.DataFrame:
+    """Tabel perbandingan MAPE backtest bergulir siap tampil.
+
+    Args:
+        lengkap: tambah kolom median, simpangan baku, dan jumlah gagal (UI/Excel).
+        numerik: kolom MAPE berupa angka (persen) alih-alih teks (untuk Excel).
+    """
     baris = (meta or {}).get("perbandingan") or []
-    return pd.DataFrame([{
-        "Metode": b["metode"],
-        "Rata-rata MAPE": _fmt_persen(b["mape"]),
-        "Terburuk": _fmt_persen(b["mape_terburuk"]),
-        "Jendela": b["n_jendela"],
-        "Status": ("TERPILIH" if b["terpilih"] else b["status"]),
-    } for b in baris])
+
+    def fmt(v):
+        if numerik:
+            return v
+        return MAPE_TIDAK_TERSEDIA if v is None else f"{v:.2f}%"
+
+    def status(b):
+        return "TERPILIH" if b["terpilih"] else b["status"]
+
+    hasil = []
+    for b in baris:
+        r = {"Metode": b["metode"], "Rata-rata MAPE": fmt(b["mape"])}
+        if lengkap:
+            r["Median"] = fmt(b["mape_median"])
+        r["Terburuk"] = fmt(b["mape_terburuk"])
+        if lengkap:
+            r["SD"] = b["mape_std"] if numerik else ("-" if b["mape_std"] is None else f"{b['mape_std']:.2f}")
+        r["Jendela"] = b["n_jendela"]
+        if lengkap:
+            r["Gagal"] = b["n_gagal"]
+        r["Status"] = status(b)
+        hasil.append(r)
+    return pd.DataFrame(hasil)

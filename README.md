@@ -27,8 +27,9 @@
 - 🤝 **Tata Kelola Penyaluran & Kas Dana**:
   - Rasio penyaluran terhadap penghimpunan, sisa saldo kas, serta batas wajar bagian amil (*PSAK 109*).
 - 🔮 **Proyeksi Penerimaan 12 Bulan**:
-  - Metode dipilih sesuai panjang data: rata-rata bergerak (< 12 bulan), tren linier + faktor musiman (12–23 bulan), *Holt-Winters* (≥ 24 bulan, statsmodels). Bila statsmodels tidak ada atau model gagal konvergen, dipakai *Tren linier sederhana* dengan peringatan eksplisit.
-  - Interval ~95% dan **MAPE dari backtest nyata**; jika data terlalu pendek, MAPE ditampilkan "tidak tersedia".
+  - **Metode dipilih lewat backtest**: rata-rata bergerak, tren linier, naif musiman, tren + faktor musiman, tren + penanda Ramadan/Idulfitri (kalender Hijriah), dan *Holt-Winters* diuji pada bulan uji yang sama; MAPE terkecil yang dipakai.
+  - Metode terpilih, MAPE-nya, dan **tabel perbandingan semua metode** tampil di UI, PDF, dan Excel. Peringatan muncul bila semua MAPE > 50% atau bila statsmodels tidak tersedia.
+  - Interval ~95%; jika data terlalu pendek untuk backtest, MAPE ditampilkan "tidak tersedia".
 - 📑 **Ekspor Laporan Resmi**:
   - **Laporan Eksekutif PDF**: Siap cetak, memuat grafik tren bulanan, komposisi jenis dana, proyeksi, serta catatan metode & asumsi.
   - **Berkas Excel Multi-Sheet**: Berisi data bersih, ringkasan KPI, segmentasi RFM, dan log pembersihan.
@@ -143,6 +144,8 @@ Zakat/
 │   ├── seed_dev.py             # Seeding basis data awal
 │   ├── create_superadmin.py    # CLI pembuatan Super Administrator
 │   ├── check_health.py         # Skrip healthcheck
+│   ├── validate_config.py      # Tolak start jika konfigurasi production tidak aman
+│   └── bandingkan_metode.py    # Tabel MAPE backtest per metode untuk data contoh
 ├── src/
 │   ├── config.py               # Pengaturan aplikasi
 │   ├── database.py             # Koneksi engine SQLAlchemy
@@ -153,7 +156,9 @@ Zakat/
 │   ├── analysis.py             # Mesin analisis statistik & KPI
 │   ├── rfm.py                  # Segmentasi RFM & Kurva Lorenz
 │   ├── pipeline.py             # Muat -> validasi -> bersihkan (pesan error ramah)
-│   ├── forecasting.py          # Peramalan + MAPE backtest + fallback jujur
+│   ├── forecasting.py          # Peramalan: pemilihan metode lewat backtest MAPE
+│   ├── kalender_hijriah.py     # Perkiraan Ramadan/Idulfitri 2015-2030 (fitur musiman)
+│   ├── waktu.py                # utc_now() terpusat
 │   ├── charts.py               # Visualisasi interaktif Plotly
 │   ├── report_charts.py        # Grafik statis matplotlib untuk PDF
 │   ├── report_pdf.py           # Generator laporan PDF
@@ -206,6 +211,22 @@ dan `data/sample/data_contoh.xlsx` dibuat dari 2000. Hasil MAPE berbeda untuk ti
 
 Reproduksi: `python scripts/bandingkan_metode.py` (lihat juga `--transaksi 1500`).
 
+### Hasil setelah pemilihan metode berbasis backtest
+
+Tabel akhir (30 bulan latih, 6 bulan uji Jul–Des 2024; semua kandidat diuji pada bulan yang sama):
+
+| Metode | Data bawaan (5000 transaksi) | `data_contoh.xlsx` (2000 transaksi) |
+|---|---|---|
+| Rata-rata bergerak 3 bulan terakhir | **18,20% (terpilih)** | 233,86% |
+| Tren linier sederhana | 21,95% | 102,29% |
+| Naif musiman (bulan yang sama tahun lalu) | 30,38% | 117,41% |
+| Tren linier + faktor musiman bulanan | 46,22% | 71,67% |
+| Tren linier + penanda Ramadan/Idulfitri | 40,68% | **51,21% (terpilih)** |
+| Holt-Winters (statsmodels) | 72,91% | 153,05% |
+
+Pada `data_contoh.xlsx` semua MAPE > 50%, sehingga aplikasi menampilkan peringatan bahwa proyeksi belum dapat diandalkan.
+Tanpa statsmodels, Holt-Winters tercatat "tidak tersedia" (tanpa angka) dan metode terpilih untuk data bawaan tetap sama.
+
 ---
 
 ## 📝 Asumsi & Catatan Metode
@@ -220,12 +241,23 @@ Asumsi yang diambil selama perbaikan rilis (silakan koreksi bila tidak sesuai ke
 3. **Pembersihan**: baris dengan `jumlah` teks/nol/negatif dan tanggal tidak valid dibuang dan dicatat di log;
    duplikat persis dihapus; outlier (IQR × 3) tetap dihitung dalam total. Total di KPI = jumlah `jumlah` setelah pembersihan
    (diverifikasi otomatis terhadap perhitungan pandas langsung di `tests/test_e2e.py`).
-4. **Peramalan**: metode per panjang data — rata-rata 3 bulan (3–11 bulan), tren linier + faktor musiman bulanan
-   (12–23 bulan), Holt-Winters aditif periode 12 (≥ 24 bulan). Fallback = tren linier sederhana tanpa musiman.
-5. **MAPE backtest**: hingga 6 bulan terakhir disisihkan sebagai data uji dengan syarat minimal 3 bulan uji dan
-   data latih sepanjang minimum metode (3 / 12 / 24 bulan). Karena itu MAPE "tidak tersedia" untuk data 3–5, 12–14,
-   dan 24–26 bulan. Bulan dengan nilai aktual 0 dikecualikan dari MAPE. Nilai MAPE dilaporkan apa adanya (bisa > 50%).
-   Holt-Winters yang memberi `ConvergenceWarning` diperlakukan sebagai gagal konvergen sehingga fallback dipakai.
+4. **Peramalan — pemilihan lewat backtest**: jumlah bulan uji = min(6, n − 3); backtest dilakukan bila ada ≥ 3 bulan uji
+   (data ≥ 6 bulan). Semua kandidat diuji pada bulan uji yang **sama**, dan model hanya menerima bulan latih (diuji
+   dengan uji mutasi). Kandidat dengan MAPE terkecil dipilih lalu dilatih ulang pada seluruh data; bila MAPE sama,
+   dipilih yang lebih sederhana (urutan: rata-rata bergerak, tren linier, naif musiman, tren + musiman, tren + Ramadan,
+   Holt-Winters). Data 3–5 bulan: rata-rata bergerak dengan MAPE "tidak tersedia".
+   Syarat data latih minimum: rata-rata bergerak & tren linier 3 bulan; tren + musiman, naif musiman, dan tren + Ramadan
+   12 bulan (naif musiman hanya ikut bila data ≥ 24 bulan); Holt-Winters 24 bulan latih (praktis data ≥ 30 bulan).
+5. **MAPE**: bulan dengan nilai aktual 0 dikecualikan; nilai dilaporkan apa adanya (bisa > 50%). Bila semua kandidat
+   > 50%, muncul peringatan bahwa proyeksi belum dapat diandalkan. Holt-Winters yang memberi `ConvergenceWarning`
+   atau gagal diimpor dicatat "tidak tersedia" beserta alasannya, dan tidak ikut dipilih.
+   **Keterbatasan**: backtest hanya memakai satu jendela uji (bulan terakhir). Bila jendela itu tidak berisi Ramadan
+   (seperti data contoh: Jul–Des 2024), metode musiman/Ramadan dinilai di bulan biasa saja, sehingga keunggulannya
+   di bulan Ramadan tidak terukur.
+5a. **Penanda Ramadan**: tanggal 1 Ramadan dan 1 Syawal 2015–2030 di `src/kalender_hijriah.py` adalah **perkiraan**
+   (dapat berbeda 1–2 hari dari penetapan resmi). Fitur bulanan = porsi hari Ramadan dalam bulan itu (jumlah per
+   Ramadan = 1) dan penanda bulan Idulfitri; model = regresi tren linier + kedua fitur. Kandidat dinonaktifkan dengan
+   pesan jelas bila data atau 12 bulan proyeksi berada di luar 2015–2030, atau bila periode latih tidak berisi Ramadan.
 6. **Interval ~95%** = proyeksi ± 1,96 × simpangan baku residual in-sample; asumsi galat kira-kira normal dan pola historis berlanjut.
    Interval ini cenderung terlalu sempit untuk horizon jauh.
 7. **RFM**: bila banyak nilai recency/monetary kembar sehingga kuantil tidak unik, skor kuantil dihitung dari peringkat
@@ -236,6 +268,14 @@ Asumsi yang diambil selama perbaikan rilis (silakan koreksi bila tidak sesuai ke
 10. File `.env` tidak lagi di-mount ke container; Docker Compose tetap membaca `.env` di folder proyek untuk substitusi variabel,
     dan aplikasi membaca konfigurasi dari environment variable.
 11. Data contoh di `data/sample/` sepenuhnya sintetis (dibuat `src/sample_data.py`), bukan data donatur asli.
+12. **Waktu**: `src/waktu.py::utc_now()` memakai `datetime.now(timezone.utc)` lalu melepas tzinfo. Kolom `DateTime`
+    tetap menyimpan UTC *naive* seperti sebelumnya (SQLite tidak menyimpan zona waktu), sehingga data lama tetap
+    kompatibel dan perbandingan waktu tidak memicu `TypeError`. Tidak ada migrasi skema.
+13. **File `.env`** dimuat otomatis oleh `src/config.py` (python-dotenv) **tanpa menimpa** variabel yang sudah ada di
+    environment. Lokasi bisa diubah dengan `APP_ENV_FILE`; string kosong menonaktifkan pemuatan (dipakai di tes dan CI).
+    `.dockerignore` mencegah `.env`, `*.db`, dan `uploads/` ikut masuk image Docker.
+14. **CI** (`.github/workflows/tests.yml`) menjalankan pytest di Python 3.11 dan 3.12 pada setiap push dan pull request,
+    dengan cache pip dan tanpa rahasia apa pun.
 
 ---
 

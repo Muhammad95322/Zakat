@@ -1,6 +1,6 @@
 """Model Token (verifikasi email, reset password, refresh token)."""
 import uuid
-from datetime import datetime
+from src.waktu import utc_now
 
 from sqlalchemy import Column, DateTime, Enum, ForeignKey, String
 from sqlalchemy.orm import relationship
@@ -39,14 +39,14 @@ class Token(Base):
     token_hash = Column(String(255), nullable=False, index=True)
     expires_at = Column(DateTime, nullable=False)
     used_at = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
 
     # Relationships
     user = relationship("User", back_populates="tokens")
 
     @property
     def is_expired(self) -> bool:
-        return datetime.utcnow() > self.expires_at
+        return utc_now() > self.expires_at
 
     @property
     def is_used(self) -> bool:

@@ -1,6 +1,6 @@
 """Model User."""
 import uuid
-from datetime import datetime
+from src.waktu import utc_now
 
 from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
@@ -44,8 +44,8 @@ class User(Base):
     last_login = Column(DateTime)
     failed_login_count = Column(Integer, default=0, nullable=False)
     locked_until = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # Relationships
     tenant = relationship("Tenant", back_populates="users")

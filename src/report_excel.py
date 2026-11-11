@@ -9,7 +9,8 @@ def generate_excel_report(
     summary_stats: dict,
     rfm_df: pd.DataFrame = None,
     forecast_df: pd.DataFrame = None,
-    cleaning_log: list = None
+    cleaning_log: list = None,
+    forecast_meta: dict = None,
 ) -> bytes:
     """Menghasilkan file Excel berformat rapi dan siap didownload."""
     output = io.BytesIO()
@@ -37,6 +38,11 @@ def generate_excel_report(
         if forecast_df is not None and not forecast_df.empty:
             forecast_df.to_excel(writer, sheet_name="Proyeksi Dana", index=False)
             
+        # Sheet 4b: Perbandingan metode peramalan (jika ada)
+        if forecast_meta and forecast_meta.get("perbandingan"):
+            from src.forecasting import tabel_perbandingan
+            tabel_perbandingan(forecast_meta).to_excel(writer, sheet_name="Perbandingan Metode", index=False)
+
         # Sheet 5: Log Pembersihan
         if cleaning_log:
             pd.DataFrame(cleaning_log).to_excel(writer, sheet_name="Log Pembersihan", index=False)

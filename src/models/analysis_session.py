@@ -1,6 +1,6 @@
 """Model Analysis Session."""
 import uuid
-from datetime import datetime
+from src.waktu import utc_now
 
 from sqlalchemy import Column, DateTime, ForeignKey, String
 from sqlalchemy.orm import relationship
@@ -37,7 +37,7 @@ class AnalysisSession(Base):
     nama_sesi = Column(String(200))
     filter_json = Column(JSON, default=dict)
     summary_json = Column(JSON, default=dict)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
 
     # Relationships
     upload = relationship("Upload", back_populates="analysis_sessions")

@@ -1,5 +1,5 @@
 """Model Audit Log."""
-from datetime import datetime
+from src.waktu import utc_now
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
@@ -36,7 +36,7 @@ class AuditLog(Base):
     detail = Column(JSON, default=dict)
     ip_address = Column(String(50))
     user_agent = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
 
     # Relationships
     tenant = relationship("Tenant", back_populates="audit_logs")

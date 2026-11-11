@@ -96,15 +96,23 @@ def test_tanpa_statsmodels_label_dan_peringatan_jujur():
         "_, m = forecast_donations(get_trend_analysis(c)['monthly'])\n"
         "print('METODE=' + m['metode']); print('FALLBACK=' + str(m['fallback']))\n"
         "print('ALASAN=' + str(m['fallback_alasan'])); print('MAPE=' + format_mape(m))\n"
+        "hw = [b for b in m['perbandingan'] if b['kode'] == 'holt_winters'][0]\n"
+        "print('HW_MAPE=' + str(hw['mape'])); print('HW_STATUS=' + hw['status'])\n"
+        "terbaik = min(b['mape'] for b in m['perbandingan'] if b['mape'] is not None)\n"
+        "print('TERBAIK=' + str(terbaik))\n"
     )
     hasil = subprocess.run([sys.executable, "-c", kode], capture_output=True, text=True, cwd=str(ROOT))
     assert hasil.returncode == 0, hasil.stderr
     out = hasil.stdout
-    assert "METODE=Tren linier sederhana" in out
+    assert "METODE=Holt-Winters" not in out          # label jujur: HW tidak dipakai
     assert "FALLBACK=True" in out
     assert "statsmodels tidak dapat diimpor" in out
-    mape = out.split("MAPE=")[1].strip()
-    assert mape == "tidak tersedia" or float(mape.rstrip("%")) not in {18.5, 12.4, 14.2}
+    assert "HW_MAPE=None" in out                      # tidak ada angka karangan untuk HW
+    assert "HW_STATUS=tidak tersedia" in out
+    mape = out.split("\nMAPE=")[1].split("\n")[0].strip()
+    terbaik = float(out.split("TERBAIK=")[1].split("\n")[0])
+    assert float(mape.rstrip("%")) == pytest.approx(terbaik)  # MAPE = metode terpilih
+    assert float(mape.rstrip("%")) not in {18.5, 12.4, 14.2}
 
 
 def test_app_menolak_start_di_production_dengan_kunci_bawaan(tmp_path):
@@ -214,8 +222,9 @@ def test_ui_halaman_analisis_tanpa_exception(tmp_path):
 def test_ui_tanpa_statsmodels_tampilkan_peringatan(tmp_path):
     out = _jalankan_ui(tmp_path, BLOK_SM="1")
     assert "EXC=0" in out, out
-    assert "Tren linier sederhana" in out
+    assert "Metode: **Holt-Winters" not in out
     assert "statsmodels tidak dapat diimpor" in out
+    assert "Dasar pemilihan" in out
 
 
 def test_ui_berkas_tersimpan_rusak_pesan_ramah(tmp_path):

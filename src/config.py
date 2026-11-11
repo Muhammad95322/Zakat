@@ -4,6 +4,28 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).parent.parent
 
+
+def muat_env_file() -> None:
+    """Muat variabel dari file .env (python-dotenv) TANPA menimpa environment.
+
+    Lokasi file: APP_ENV_FILE bila diset (string kosong = jangan muat apa pun),
+    selain itu BASE_DIR/.env. Variabel yang sudah ada di environment selalu menang.
+    """
+    lokasi = os.environ.get("APP_ENV_FILE")
+    if lokasi == "":
+        return
+    path = Path(lokasi) if lokasi else BASE_DIR / ".env"
+    if not path.is_file():
+        return
+    try:
+        from dotenv import load_dotenv
+    except ImportError:  # python-dotenv opsional saat runtime
+        return
+    load_dotenv(path, override=False)
+
+
+muat_env_file()
+
 # Nilai kunci bawaan/contoh yang TIDAK boleh dipakai di production.
 DEFAULT_SECRET_KEY = "dev-secret-key-ganti-di-production-32chars"
 KNOWN_INSECURE_SECRET_KEYS = {

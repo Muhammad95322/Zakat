@@ -6,7 +6,7 @@ from typing import Optional
 import pandas as pd
 from fpdf import FPDF
 
-from src.forecasting import format_mape
+from src.forecasting import format_mape, tabel_perbandingan
 from src.utils import format_rupiah, format_tanggal
 
 
@@ -45,6 +45,39 @@ class ZakatPDF(FPDF):
         self.set_font("Helvetica", "I", 8)
         self.set_text_color(148, 163, 184)
         self.cell(0, 10, "Dokumen ini dibuat otomatis oleh Zakat Insight | Rahasia & Khusus Lembaga", align="C")
+
+
+def _bagian_pemilihan_metode(pdf: FPDF, meta: dict) -> None:
+    """Tulis metode terpilih, MAPE-nya, dan tabel perbandingan semua kandidat."""
+    if pdf.get_y() > pdf.h - 90:
+        pdf.add_page()
+    pdf.ln(2)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_text_color(15, 118, 110)
+    pdf.cell(0, 8, "Pemilihan Metode Peramalan", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(51, 65, 85)
+    pdf.multi_cell(0, 5, _aman(
+        f"Metode terpilih: {meta.get('metode')} | MAPE backtest: {format_mape(meta)}. "
+        f"{meta.get('dasar_pemilihan', '')}"
+    ), new_x="LMARGIN", new_y="NEXT")
+    if meta.get("peringatan_keandalan"):
+        pdf.set_text_color(180, 83, 9)
+        pdf.multi_cell(0, 5, _aman("PERINGATAN: " + meta["peringatan_keandalan"]), new_x="LMARGIN", new_y="NEXT")
+    if meta.get("fallback_alasan"):
+        pdf.set_text_color(180, 83, 9)
+        pdf.multi_cell(0, 5, _aman("PERINGATAN: " + meta["fallback_alasan"]), new_x="LMARGIN", new_y="NEXT")
+    tabel = tabel_perbandingan(meta)
+    if not tabel.empty:
+        pdf.ln(1)
+        pdf.set_text_color(51, 65, 85)
+        pdf.set_font("Helvetica", "", 7.5)
+        with pdf.table(col_widths=(62, 22, 14, 12, 80), text_align=("LEFT", "RIGHT", "RIGHT", "RIGHT", "LEFT"),
+                       line_height=4.2) as t:
+            t.row([_aman(c) for c in tabel.columns])
+            for _, r in tabel.iterrows():
+                t.row([_aman(v) for v in r.tolist()])
+    pdf.ln(3)
 
 
 def generate_pdf_report(
@@ -155,7 +188,11 @@ def generate_pdf_report(
             _sisip_grafik(pdf, png, judul)
         pdf.set_text_color(30, 41, 59)
 
-    # 6. Catatan Metode & Asumsi
+    # 6. Pemilihan Metode Peramalan (tabel perbandingan MAPE backtest)
+    if forecast_meta and forecast_meta.get("kode_metode"):
+        _bagian_pemilihan_metode(pdf, forecast_meta)
+
+    # 7. Catatan Metode & Asumsi
     if pdf.get_y() > pdf.h - 80:
         pdf.add_page()
     pdf.set_font("Helvetica", "B", 12)
@@ -178,10 +215,12 @@ def generate_pdf_report(
             f"{forecast_meta.get('n_bulan', '-')} bulan data historis. Interval ~95% = proyeksi +/- 1,96 x "
             f"simpangan baku residual model (asumsi galat kira-kira normal dan pola historis berlanjut).\n"
             f"7. Estimasi galat (MAPE backtest): {format_mape(forecast_meta)}. "
-            f"{forecast_meta.get('mape_keterangan', '')}"
+            f"{forecast_meta.get('mape_keterangan', '')} {forecast_meta.get('dasar_pemilihan', '')}"
         )
+        if forecast_meta.get("peringatan_keandalan"):
+            metode_text += f"\n8. PERINGATAN: {forecast_meta.get('peringatan_keandalan')}"
         if forecast_meta.get("fallback"):
-            metode_text += f"\n8. PERINGATAN: {forecast_meta.get('fallback_alasan')}"
+            metode_text += f"\n9. PERINGATAN: {forecast_meta.get('fallback_alasan')}"
     pdf.multi_cell(0, 4, _aman(metode_text), new_x="LMARGIN", new_y="NEXT")
     
     return bytes(pdf.output())

@@ -1,6 +1,6 @@
 """Model Invitation (Undangan bergabung ke tenant)."""
 import uuid
-from datetime import datetime
+from src.waktu import utc_now
 
 from sqlalchemy import Column, DateTime, Enum, ForeignKey, String
 from sqlalchemy.orm import relationship
@@ -41,7 +41,7 @@ class Invitation(Base):
     invited_by = Column(UUIDType, ForeignKey("users.id"), nullable=False)
     expires_at = Column(DateTime, nullable=False)
     accepted_at = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
 
     # Relationships
     tenant = relationship("Tenant", back_populates="invitations")
@@ -51,7 +51,7 @@ class Invitation(Base):
 
     @property
     def is_expired(self) -> bool:
-        return datetime.utcnow() > self.expires_at
+        return utc_now() > self.expires_at
 
     @property
     def is_accepted(self) -> bool:

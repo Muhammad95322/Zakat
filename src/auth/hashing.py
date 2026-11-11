@@ -6,15 +6,14 @@ import bcrypt
 
 # bcrypt hanya memakai 72 byte pertama; bcrypt 5 melempar ValueError bila lebih
 MAKS_BYTE_BCRYPT = 72
-# Hash tiruan untuk menyamakan waktu respons login saat email tidak terdaftar
-_HASH_TIRUAN = None
+# Hash tiruan (cost sama dengan hash_password) untuk menyamakan waktu respons login pada jalur
+# yang tidak memeriksa hash asli (email tidak ada, akun terkunci, nonaktif, belum verifikasi).
+# Dibuat sekali saat modul dimuat agar permintaan pertama tidak lebih lambat (oracle waktu).
+_HASH_TIRUAN = bcrypt.hashpw(b"Tiruan-Penyama-Waktu-1", bcrypt.gensalt(rounds=12)).decode("utf-8")
 
 
 def verifikasi_tiruan(plain: str) -> None:
-    """Jalankan bcrypt terhadap hash tiruan agar waktu respons tidak membocorkan keberadaan email."""
-    global _HASH_TIRUAN
-    if _HASH_TIRUAN is None:
-        _HASH_TIRUAN = hash_password("Tiruan-Penyama-Waktu-1")
+    """Jalankan bcrypt terhadap hash tiruan agar waktu respons tidak membocorkan keadaan akun."""
     verify_password(plain, _HASH_TIRUAN)
 
 

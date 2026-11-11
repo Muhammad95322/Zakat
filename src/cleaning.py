@@ -1,7 +1,7 @@
 """Modul pembersihan otomatis data ZIS dengan laporan transparan dan deteksi outlier."""
 import re
 from datetime import datetime, date
-from typing import Dict, Any, Tuple, List
+from typing import Dict, Any, Tuple, List, Optional
 import pandas as pd
 import numpy as np
 

@@ -1,5 +1,6 @@
 """Layanan pengiriman email notifikasi dan verifikasi."""
 import smtplib
+from html import escape
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from src.config import settings
@@ -7,11 +8,15 @@ from src.config import settings
 def kirim_email(to_email: str, subject: str, body_html: str) -> bool:
     """Mengirim email HTML via SMTP atau print ke console jika dinonaktifkan."""
     if not settings.EMAIL_ENABLED:
-        print(f"\n================ [EMAIL SIMULASI] ================")
+        if settings.is_production:
+            # Jangan pernah menulis isi email (berisi tautan bertoken) ke log production.
+            print(f"[EMAIL] Tidak dikirim karena EMAIL_ENABLED=false: '{subject}'. Atur SMTP untuk production.")
+            return False
+        print("\n================ [EMAIL SIMULASI - hanya development] ================")
         print(f"Kepada  : {to_email}")
         print(f"Subjek  : {subject}")
         print(f"Isi     :\n{body_html}")
-        print(f"===================================================\n")
+        print("======================================================================\n")
         return True
 
     try:
@@ -32,6 +37,7 @@ def kirim_email(to_email: str, subject: str, body_html: str) -> bool:
         return False
 
 def email_verifikasi(nama: str, link: str) -> str:
+    nama, link = escape(nama), escape(link)
     return f"""
     <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
         <h2 style="color: #0d9488;">Selamat Datang di Zakat Insight</h2>
@@ -44,6 +50,7 @@ def email_verifikasi(nama: str, link: str) -> str:
     """
 
 def email_reset_password(nama: str, link: str) -> str:
+    nama, link = escape(nama), escape(link)
     return f"""
     <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
         <h2 style="color: #0d9488;">Permintaan Reset Kata Sandi</h2>
@@ -55,6 +62,7 @@ def email_reset_password(nama: str, link: str) -> str:
     """
 
 def email_undangan(nama_lembaga: str, peran: str, link: str) -> str:
+    nama_lembaga, peran, link = escape(nama_lembaga), escape(peran), escape(link)
     return f"""
     <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
         <h2 style="color: #0d9488;">Undangan Bergabung ke Zakat Insight</h2>

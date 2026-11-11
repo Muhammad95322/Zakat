@@ -148,7 +148,9 @@ Zakat/
 │   ├── check_health.py         # Skrip healthcheck
 │   ├── validate_config.py      # Tolak start jika konfigurasi production tidak aman
 │   ├── bandingkan_metode.py    # Tabel MAPE backtest bergulir per metode
-│   └── ukur_waktu_peramalan.py # Ukur waktu peramalan (36/120 bulan)
+│   ├── ukur_waktu_peramalan.py # Ukur waktu peramalan (36/120 bulan)
+│   ├── backup_db.py            # Backup/restore DB + unggahan
+│   └── bersihkan_retensi.py    # Pembersihan retensi data
 ├── src/
 │   ├── config.py               # Pengaturan aplikasi
 │   ├── database.py             # Koneksi engine SQLAlchemy
@@ -186,6 +188,60 @@ Zakat/
 - Kata sandi Postgres/pgAdmin di `docker-compose.yml` dapat dioverride lewat `POSTGRES_PASSWORD` dan `PGADMIN_PASSWORD`;
   nilai bawaannya hanya untuk pengembangan lokal. Port DB dan pgAdmin hanya dibuka di `127.0.0.1`.
 - `scripts/seed_dev.py` menolak berjalan bila `APP_ENV=production`.
+
+---
+
+## 🛡️ Keamanan & Operasional Deploy
+
+Hasil audit keamanan dan statusnya ada di [`docs/AUDIT_KEAMANAN.md`](docs/AUDIT_KEAMANAN.md). Draf kebijakan privasi
+ada di [`docs/DRAFT_KEBIJAKAN_PRIVASI.md`](docs/DRAFT_KEBIJAKAN_PRIVASI.md); itu **draf teknis yang wajib ditinjau ahli
+hukum** (UU PDP No. 27/2022). **Sebelum menyimpan data donatur sungguhan, lakukan uji penetrasi oleh pihak ketiga.**
+
+**Email.**
+- **Belum ada pengirim email bawaan.** Email hanya terkirim bila SMTP dikonfigurasi (`EMAIL_ENABLED=true`,
+  `EMAIL_SMTP_HOST/PORT/USER/PASS`, `EMAIL_FROM`).
+- **Tanpa SMTP di development:** isi email (termasuk tautan) dicetak ke terminal sebagai mode pengembangan.
+- **Tanpa SMTP di production:** email tidak dikirim dan isinya tidak dicetak. Akibatnya pendaftar baru tidak dapat
+  memverifikasi email, reset sandi tidak berfungsi, dan undangan tidak sampai.
+- **`APP_BASE_URL`** harus berisi alamat publik aplikasi, untuk tautan di email.
+
+**Pembayaran.** Halaman Paket Langganan **hanya informasi**: tidak terhubung ke penyedia pembayaran mana pun. Paket
+diubah manual oleh Super Admin. Kontak yang ditampilkan diatur lewat `KONTAK_PENJUALAN`.
+
+**Basis data & migrasi.** Skema dikelola Alembic (`migrasi/`). Migrasi berjalan otomatis saat start (`init_db()`,
+dipanggil Dockerfile, render.yaml, dan app.py). DB lama yang dibuat dengan `create_all` sebelum migrasi ada akan
+di-stamp lalu di-upgrade tanpa kehilangan data. Membuat revisi baru:
+```bash
+DATABASE_URL=sqlite:///tmp/ref.db python -m alembic revision --autogenerate -m "pesan"
+```
+
+**Backup & pemulihan** (arsip berisi data donatur, mode 600; simpan terenkripsi di luar server):
+```bash
+python scripts/backup_db.py backup --keluar backups/
+```
+```bash
+python scripts/backup_db.py restore backups/zakat-backup-<waktu>.tar.gz --ya
+```
+```bash
+sh scripts/backup_postgres_compose.sh backup
+```
+
+**Retensi data.** Jadwalkan pembersihan harian (log audit melewati masa retensi paket, token/undangan kedaluwarsa):
+```bash
+python scripts/bersihkan_retensi.py
+```
+Penghapusan tuntas tersedia di menu: Super Admin → "Hapus permanen" (lembaga), dan Tim → "Hapus data" (anggota yang
+sudah dinonaktifkan).
+
+**Render (paket gratis).** Disk web service bersifat sementara: **berkas unggahan hilang setiap redeploy/restart**.
+Untuk production pakai persistent disk (berbayar) atau object storage. Basis data gratis Render juga berbatas waktu.
+
+**Variabel lingkungan baru:** `APP_BASE_URL`, `KONTAK_PENJUALAN`, `SQL_ECHO` (log SQL; jangan aktif di production),
+`MAX_DEKOMPRESI_MB` (300), `MAX_RASIO_KOMPRESI` (100), `MAX_SHEET` (20), `MAX_BARIS` (500000).
+Konfigurasi Streamlit ada di `.streamlit/config.toml`: tanpa stack trace ke pengguna, telemetri mati, unggah maks 50 MB.
+
+**CI.** Ada tiga job tanpa rahasia: `pytest` (3.11 & 3.12), `docker` (bangun image + tes di dalamnya), dan
+`keamanan` (pip-audit + bandit). Pengecualian bandit ditulis per baris sebagai `# nosec <ID>` beserta alasan.
 
 ---
 

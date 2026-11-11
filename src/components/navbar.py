@@ -54,6 +54,13 @@ def show_navbar(current_page: str = ""):
         st.divider()
         if st.button("🚪 Keluar / Logout", use_container_width=True):
             from src.auth.session import clear_session
+            try:  # cabut refresh token di DB, bukan hanya menghapus sesi browser
+                from src.database import get_db
+                from src.services.auth_service import logout
+                with get_db() as db:
+                    logout(db, user.get("id"), user.get("refresh_token"))
+            except Exception as e:  # logout lokal tetap jalan; catat kegagalan pencabutan token
+                print(f"[LOGOUT] Gagal mencabut refresh token: {type(e).__name__}")
             clear_session()
             st.session_state["page"] = "login"
             st.rerun()

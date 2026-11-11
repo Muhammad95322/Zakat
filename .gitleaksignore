@@ -1,0 +1,2 @@
+# Positif palsu gitleaks: kunci dummy di workflow CI (bukan rahasia), lihat docs/AUDIT_KEAMANAN.md R7
+e4e11c21f67830e6d05b5df59d23e9115baf3c0a:.github/workflows/tests.yml:generic-api-key:70

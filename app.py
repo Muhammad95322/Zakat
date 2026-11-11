@@ -57,12 +57,12 @@ def main():
         st.session_state["page"] = target_page
 
     page = st.session_state.get("page", "login")
-    public_pages = {"login", "register", "verify_email", "reset_password"}
+    public_pages = {"login", "register", "verify_email", "reset_password", "terima_undangan"}
 
     # Otentikasi Gatekeeper
     if page not in public_pages:
-        from src.auth.session import is_logged_in
-        if not is_logged_in():
+        from src.auth.session import is_logged_in, validasi_sesi
+        if not is_logged_in() or not validasi_sesi():
             st.session_state["page"] = "login"
             st.rerun()
             return
@@ -79,6 +79,9 @@ def main():
         show()
     elif page == "reset_password":
         from src.pages.pg_reset_password import show
+        show()
+    elif page == "terima_undangan":
+        from src.pages.pg_terima_undangan import show
         show()
     elif page == "dashboard":
         from src.components.navbar import show_navbar

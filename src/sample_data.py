@@ -5,6 +5,7 @@ Menghasilkan transaksi 3 tahun (2022-2024) dengan:
 - Outlier, duplikat, dan data kotor yang disengaja untuk pengujian cleaning
 - Transaksi penghimpunan dan penyaluran
 """
+# nosec B311 (seluruh berkas): `random` hanya untuk membuat DATA SINTETIS contoh, bukan keperluan kriptografi
 import random
 import calendar
 from datetime import datetime, date, timedelta
@@ -31,8 +32,8 @@ RAMADAN_MONTHS = {
 
 def generate_sample_data(n_penghimpunan: int = 5000, n_penyaluran: int = 1500) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Generate dataframe sintetis penghimpunan dan penyaluran."""
-    random.seed(42)
-    np.random.seed(42)
+    random.seed(42)  # nosec B311
+    np.random.seed(42)  # nosec B311
 
     # 1. Generate Muzaki Pool (600 muzaki unik)
     muzaki_pool = []
@@ -50,46 +51,46 @@ def generate_sample_data(n_penghimpunan: int = 5000, n_penyaluran: int = 1500) -
 
     rows_penghimpunan = []
     for _ in range(n_penghimpunan):
-        d_offset = random.randint(0, total_days)
+        d_offset = random.randint(0, total_days)  # nosec B311
         tgl = start_date + timedelta(days=d_offset)
         
-        mzk = random.choice(muzaki_pool)
+        mzk = random.choice(muzaki_pool)  # nosec B311
         
         # Bobot jenis dana & nominal sesuai musim Ramadan
         is_ramadan = tgl.month in RAMADAN_MONTHS.get(tgl.year, [])
         is_december = (tgl.month == 12)
         
         if is_ramadan:
-            jenis = random.choices(
+            jenis = random.choices(  # nosec B311
                 JENIS_DANA,
                 weights=[30, 25, 20, 10, 10, 3, 2]
             )[0]
         else:
-            jenis = random.choices(
+            jenis = random.choices(  # nosec B311
                 JENIS_DANA,
                 weights=[2, 20, 35, 20, 15, 5, 3]
             )[0]
             
-        kanal = random.choices(
+        kanal = random.choices(  # nosec B311
             KANAL,
             weights=[40, 15, 25, 10, 10]
         )[0]
         
-        wilayah = random.choices(
+        wilayah = random.choices(  # nosec B311
             KABUPATEN_KOTA,
             weights=[35, 30, 20, 8, 7]
         )[0]
         
         # Nominal donasi berdasarkan profil muzaki
         if mzk["tipe"] == "besar":
-            nominal = round(random.uniform(5_000_000, 50_000_000), -4)
+            nominal = round(random.uniform(5_000_000, 50_000_000), -4)  # nosec B311
         elif mzk["tipe"] == "menengah":
-            nominal = round(random.uniform(500_000, 5_000_000), -3)
+            nominal = round(random.uniform(500_000, 5_000_000), -3)  # nosec B311
         else:
-            nominal = round(random.uniform(25_000, 1_000_000), -3)
+            nominal = round(random.uniform(25_000, 1_000_000), -3)  # nosec B311
             
         if is_ramadan:
-            nominal *= random.uniform(1.2, 1.8)
+            nominal *= random.uniform(1.2, 1.8)  # nosec B311
             
         rows_penghimpunan.append({
             "tanggal": tgl.strftime("%Y-%m-%d"),
@@ -105,16 +106,16 @@ def generate_sample_data(n_penghimpunan: int = 5000, n_penyaluran: int = 1500) -
     # Sisipkan dirty data yang disengaja
     # a. Duplikat (50 baris)
     for _ in range(50):
-        rows_penghimpunan.append(rows_penghimpunan[random.randint(0, 1000)].copy())
+        rows_penghimpunan.append(rows_penghimpunan[random.randint(0, 1000)].copy())  # nosec B311
         
     # b. Outlier ekstrem (5 baris)
     for _ in range(5):
-        idx = random.randint(0, len(rows_penghimpunan)-1)
+        idx = random.randint(0, len(rows_penghimpunan)-1)  # nosec B311
         rows_penghimpunan[idx]["jumlah"] = int(500_000_000)
 
     # c. Nilai kosong acak
     for _ in range(30):
-        idx = random.randint(0, len(rows_penghimpunan)-1)
+        idx = random.randint(0, len(rows_penghimpunan)-1)  # nosec B311
         rows_penghimpunan[idx]["kabupaten_kota"] = ""
 
     df_penghimpunan = pd.DataFrame(rows_penghimpunan)
@@ -122,28 +123,28 @@ def generate_sample_data(n_penghimpunan: int = 5000, n_penyaluran: int = 1500) -
     # 3. Generate Penyaluran
     rows_penyaluran = []
     for _ in range(n_penyaluran):
-        d_offset = random.randint(0, total_days)
+        d_offset = random.randint(0, total_days)  # nosec B311
         tgl = start_date + timedelta(days=d_offset)
         
-        prog = random.choices(
+        prog = random.choices(  # nosec B311
             PROGRAM,
             weights=[30, 25, 20, 15, 10]
         )[0]
         
-        asnaf_val = random.choices(
+        asnaf_val = random.choices(  # nosec B311
             ASNAF,
             weights=[35, 30, 10, 5, 2, 8, 8, 2]
         )[0]
         
-        wilayah = random.choice(KABUPATEN_KOTA)
-        penerima = random.randint(1, 100)
-        nominal = penerima * round(random.uniform(150_000, 1_000_000), -3)
+        wilayah = random.choice(KABUPATEN_KOTA)  # nosec B311
+        penerima = random.randint(1, 100)  # nosec B311
+        nominal = penerima * round(random.uniform(150_000, 1_000_000), -3)  # nosec B311
         
         rows_penyaluran.append({
             "tanggal": tgl.strftime("%Y-%m-%d"),
             "program": prog,
             "asnaf": asnaf_val,
-            "jenis_dana_sumber": random.choice(["Zakat Maal", "Zakat Fitrah", "Infak", "Sedekah"]),
+            "jenis_dana_sumber": random.choice(["Zakat Maal", "Zakat Fitrah", "Infak", "Sedekah"]),  # nosec B311
             "kabupaten_kota": wilayah,
             "jumlah_penerima": penerima,
             "jumlah": int(nominal)

@@ -39,6 +39,20 @@ def show():
                             set_paket(db, t.id, new_paket, date.today(), date.today() + timedelta(days=365))
                             st.success("Paket diperbarui.")
                             st.rerun()
+                with st.popover("🗑️ Hapus permanen"):
+                    st.warning("Menghapus lembaga, semua pengguna, unggahan (termasuk berkas), dan log auditnya. "
+                               "Tidak dapat dibatalkan. Buat backup lebih dulu.")
+                    konfirmasi = st.text_input(f"Ketik slug `{t.slug}` untuk konfirmasi", key=f"konf_{t.id}")
+                    if st.button("Hapus lembaga ini", key=f"hapus_{t.id}", type="primary"):
+                        from src.auth.session import get_current_user
+                        from src.services.data_pribadi import hapus_lembaga
+                        try:
+                            with get_db() as db:
+                                hasil = hapus_lembaga(db, t.id, get_current_user(), konfirmasi)
+                            st.success(f"Lembaga dihapus: {hasil}")
+                            st.rerun()
+                        except (ValueError, PermissionError) as e:
+                            st.error(str(e))
                 with c_p2:
                     if t.is_active:
                         if st.button("Nonaktifkan Lembaga", key=f"btn_non_{t.id}"):

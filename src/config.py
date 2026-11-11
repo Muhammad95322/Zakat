@@ -27,7 +27,8 @@ def muat_env_file() -> None:
 muat_env_file()
 
 # Nilai kunci bawaan/contoh yang TIDAK boleh dipakai di production.
-DEFAULT_SECRET_KEY = "dev-secret-key-ganti-di-production-32chars"
+# nosec B105: kunci khusus development; production dengan kunci ini ditolak validate_security_settings
+DEFAULT_SECRET_KEY = "dev-secret-key-ganti-di-production-32chars"  # nosec B105
 KNOWN_INSECURE_SECRET_KEYS = {
     DEFAULT_SECRET_KEY,
     "changeme",
@@ -83,12 +84,23 @@ class Settings:
     # Storage
     UPLOAD_DIR: Path = Path(os.getenv("UPLOAD_DIR", str(BASE_DIR / "uploads")))
     MAX_UPLOAD_SIZE_MB: int = int(os.getenv("MAX_UPLOAD_SIZE_MB", "50"))
+    # Batas isi berkas (cegah bom zip / DoS memori)
+    MAX_DEKOMPRESI_MB: int = int(os.getenv("MAX_DEKOMPRESI_MB", "300"))
+    MAX_RASIO_KOMPRESI: int = int(os.getenv("MAX_RASIO_KOMPRESI", "100"))
+    MAX_SHEET: int = int(os.getenv("MAX_SHEET", "20"))
+    MAX_BARIS: int = int(os.getenv("MAX_BARIS", "500000"))
 
     # Security
     JWT_ACCESS_EXPIRE_HOURS: int = int(os.getenv("JWT_ACCESS_EXPIRE_HOURS", "8"))
     JWT_REFRESH_EXPIRE_DAYS: int = int(os.getenv("JWT_REFRESH_EXPIRE_DAYS", "30"))
     LOGIN_MAX_ATTEMPTS: int = int(os.getenv("LOGIN_MAX_ATTEMPTS", "5"))
     LOGIN_LOCKOUT_MINUTES: int = int(os.getenv("LOGIN_LOCKOUT_MINUTES", "15"))
+
+    # Alamat publik aplikasi untuk tautan di email (verifikasi, reset, undangan)
+    APP_BASE_URL: str = os.getenv("APP_BASE_URL", "http://localhost:8501").rstrip("/")
+
+    # Kontak penjualan yang ditampilkan di halaman langganan (kosong = belum dikonfigurasi)
+    KONTAK_PENJUALAN: str = os.getenv("KONTAK_PENJUALAN", "")
 
     # Super Admin
     SUPERADMIN_EMAIL: str = os.getenv("SUPERADMIN_EMAIL", "admin@zakatinsight.id")

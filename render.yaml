@@ -4,7 +4,8 @@ services:
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt -c constraints.txt
-    startCommand: python scripts/validate_config.py && streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+    # Validasi kunci production -> migrasi basis data (Alembic) -> aplikasi
+    startCommand: python scripts/validate_config.py && python -c 'from src.database import init_db; init_db()' && streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
     envVars:
       - key: APP_ENV
         value: production
@@ -14,8 +15,19 @@ services:
         fromDatabase:
           name: zakat-insight-db
           property: connectionString
+      # Alamat publik layanan, untuk tautan verifikasi/reset/undangan di email (isi di dashboard Render)
+      - key: APP_BASE_URL
+        sync: false
+      # Tanpa SMTP, email TIDAK dikirim: pendaftar tidak dapat verifikasi dan reset sandi tidak berfungsi.
+      # Isi EMAIL_SMTP_* (sync: false) lalu set EMAIL_ENABLED=true untuk production sungguhan.
       - key: EMAIL_ENABLED
         value: false
+      - key: EMAIL_SMTP_HOST
+        sync: false
+      - key: EMAIL_SMTP_USER
+        sync: false
+      - key: EMAIL_SMTP_PASS
+        sync: false
 
 databases:
   - name: zakat-insight-db

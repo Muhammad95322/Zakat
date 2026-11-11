@@ -52,3 +52,6 @@ uploads/
 npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*
+
+# Backup berisi data donatur
+backups/

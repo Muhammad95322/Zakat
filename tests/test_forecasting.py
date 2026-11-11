@@ -686,10 +686,38 @@ class TestBiasPerHorizon:
         assert [t for t, _ in rinci[1]] == list(range(3, 20))          # semua titik awal t >= 3 dengan t + 1 <= 20
         assert [t for t, _ in rinci[4]] == list(range(3, 17))          # t + 4 <= 20
         assert all(r == pytest.approx(1.25) for v in rinci.values() for _, r in v)
-        assert fc.terbaru(rinci, 2)[4] == [1.25, 1.25]
+        assert fc.terbaru(rinci, 20, 2)[4] == [1.25, 1.25]                # titik awal 15 dan 16
+
+    def test_terbaru_menurut_titik_awal_bukan_jumlah(self):
+        # titik awal 18 dilewati (mis. prediksi <= 0): tidak diganti titik awal yang lebih lama
+        rinci = {1: [(15, 1.0), (16, 1.1), (17, 1.2), (19, 1.4)]}
+        assert fc.terbaru(rinci, 20, 3) == {1: [1.2, 1.4]}  # titik awal 17..19 saja
 
     def test_bias_di_meta(self):
         _, meta = forecast_donations(_bulanan(36))
         bias = meta["bias_per_horizon"]
         assert [b["langkah"] for b in bias] == list(range(1, 13))
         assert all(b["n_rasio"] <= fc.MAKS_TITIK_AWAL for b in bias)
+
+
+class TestKoreksiBiasDasar:
+    def test_faktor_koreksi_aturan(self):
+        assert fc.faktor_koreksi([1.2] * 6) == (pytest.approx(1.2), "dikoreksi")
+        f, st = fc.faktor_koreksi([1.2] * 5)
+        assert f == 1.0 and "hanya 5 rasio" in st
+        f, st = fc.faktor_koreksi([2.5] * 8)
+        assert f == 1.0 and "di luar rentang wajar" in st
+        f, st = fc.faktor_koreksi([0.4] * 8)
+        assert f == 1.0 and "di luar rentang wajar" in st
+
+    def test_bias_konstan_koreksi_dipakai(self):
+        # rasio selalu 1.25 -> setelah koreksi APE 0 -> jelas membaik
+        rinci = {h: [(t, 1.25) for t in range(3, 30 - h + 1)] for h in (1, 2)}
+        uji = fc.uji_koreksi_bertingkat(rinci)
+        assert uji["dipakai"] is True and uji["mape_dengan"] == 0.0
+        assert uji["mape_tanpa"] == pytest.approx(20.0)  # |1 - 1/1.25| = 0.2
+
+    def test_data_terlalu_sedikit(self):
+        rinci = {1: [(t, 1.25) for t in range(3, 10)]}  # hanya 1 pasangan evaluasi (t=9)
+        uji = fc.uji_koreksi_bertingkat(rinci)
+        assert uji["dipakai"] is False and "terlalu sedikit" in uji["alasan"]

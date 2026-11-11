@@ -43,6 +43,10 @@ MAKS_HORIZON_SELANG = 12   # backtest selang menjangkau sampai 12 bulan ke depan
 LABEL_SELANG = f"Selang {LEVEL_SELANG:.0%} (dari galat backtest)"
 MAKS_TITIK_AWAL_RINCI = 36  # titik awal per langkah untuk uji bertingkat koreksi bias (lebih panjang dari 12)
 AMBANG_ARAH_BIAS = 0.05     # |median rasio - 1| < 5% dianggap tidak bias berarti
+MIN_RASIO_KOREKSI = 6       # minimal rasio per langkah horizon agar faktor koreksi dihitung
+BATAS_FAKTOR_KOREKSI = (0.5, 2.0)  # faktor di luar rentang ini dianggap tidak wajar -> tidak dipakai
+MIN_EVAL_KOREKSI = 12       # minimal pasangan evaluasi pada uji bertingkat
+AMBANG_PERBAIKAN_KOREKSI = 0.10  # koreksi dipakai hanya bila MAPE evaluasi turun >= 10% relatif
 _MIN_BULAN_DATA = 3
 # Alias kompatibilitas nama lama
 _MAKS_BULAN_UJI = HORIZON_UJI
@@ -411,6 +415,7 @@ def _hasil_kosong(n: int) -> Tuple[pd.DataFrame, Dict[str, Any]]:
         "selang_keterangan": "Selang tidak tersedia: tidak ada peramalan.",
         "selang_per_bulan": [],
         "bias_per_horizon": [],
+        "koreksi_bias": {"dipakai": False, "alasan": "tidak ada peramalan", "uji": {}, "faktor_per_horizon": []},
         "perbandingan": [],
         "dasar_pemilihan": "Tidak ada peramalan.",
         "n_bulan": n,
@@ -477,9 +482,13 @@ def rasio_per_horizon_rinci(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeI
     return {hh: sorted(v)[-maks_titik:] for hh, v in per_h.items()}
 
 
-def terbaru(rinci: Dict[int, List[Tuple[int, float]]], k: int = MAKS_TITIK_AWAL) -> Dict[int, List[float]]:
-    """Ambil k rasio dari titik awal terbaru per langkah horizon."""
-    return {hh: [r for _, r in v[-k:]] for hh, v in rinci.items()}
+def terbaru(rinci: Dict[int, List[Tuple[int, float]]], n: int, k: int = MAKS_TITIK_AWAL) -> Dict[int, List[float]]:
+    """Rasio dari k TITIK AWAL terbaru yang mencapai langkah h (t dari n-h-k+1 sampai n-h).
+
+    Dipilih menurut titik awal, bukan jumlah rasio: bila sebagian titik awal dilewati
+    (prediksi <= 0 atau model gagal), tidak diganti dengan titik awal yang lebih lama.
+    """
+    return {hh: [r for t, r in v if t >= n - hh - k + 1] for hh, v in rinci.items()}
 
 
 def galat_per_horizon(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex,
@@ -487,7 +496,77 @@ def galat_per_horizon(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex,
     """Galat relatif (aktual - prediksi) / prediksi = rasio - 1, maks MAKS_TITIK_AWAL titik awal
     terbaru per langkah horizon (dipakai untuk selang)."""
     rinci = rasio_per_horizon_rinci(kandidat, y, tgl, maks_h, MAKS_TITIK_AWAL)
-    return {hh: [r - 1 for r in v] for hh, v in terbaru(rinci).items()}
+    return {hh: [r - 1 for r in v] for hh, v in terbaru(rinci, len(y)).items()}
+
+
+def faktor_koreksi(rasio: List[float]) -> Tuple[float, str]:
+    """Faktor koreksi = median rasio aktual/prediksi, dengan syarat jumlah dan rentang wajar.
+
+    Returns:
+        (faktor, status). Faktor 1.0 berarti tidak dikoreksi; status menjelaskan alasannya.
+    """
+    if len(rasio) < MIN_RASIO_KOREKSI:
+        return 1.0, f"tidak dikoreksi: hanya {len(rasio)} rasio (butuh {MIN_RASIO_KOREKSI})"
+    f = float(np.median(rasio))
+    lo, hi = BATAS_FAKTOR_KOREKSI
+    if not (lo <= f <= hi):
+        return 1.0, f"tidak dikoreksi: faktor {f:.2f} di luar rentang wajar {lo}-{hi}"
+    return f, "dikoreksi"
+
+
+def uji_koreksi_bertingkat(rinci: Dict[int, List[Tuple[int, float]]]) -> Dict[str, Any]:
+    """Uji tanpa kebocoran apakah koreksi bias memperbaiki proyeksi.
+
+    Untuk setiap sampel evaluasi (titik awal t_i, langkah h, rasio r_i), faktor dipelajari
+    HANYA dari rasio (t_j, h) yang nilai aktualnya sudah diketahui pada t_i, yaitu
+    t_j + h <= t_i (maks MAKS_TITIK_AWAL terbaru), dengan aturan ``faktor_koreksi``.
+    Sampel tanpa >= MIN_RASIO_KOREKSI rasio belajar dilewati. APE tanpa koreksi =
+    |1 - 1/r_i|, dengan koreksi = |1 - f/r_i| (karena aktual = r_i x prediksi).
+    """
+    ape_tanpa: List[float] = []
+    ape_dengan: List[float] = []
+    titik_eval: List[int] = []
+    n_luar_batas = 0
+    for hh, sampel in rinci.items():
+        for t_i, r_i in sampel:
+            belajar = [r for t_j, r in sampel if t_j + hh <= t_i][-MAKS_TITIK_AWAL:]
+            if len(belajar) < MIN_RASIO_KOREKSI:
+                continue
+            f, status = faktor_koreksi(belajar)
+            if status != "dikoreksi":
+                n_luar_batas += 1
+            ape_tanpa.append(abs(1 - 1 / r_i))
+            ape_dengan.append(abs(1 - f / r_i))
+            titik_eval.append(t_i)
+    n_eval = len(ape_tanpa)
+    hasil = {
+        "n_eval": n_eval,
+        "mape_tanpa": round(float(np.mean(ape_tanpa)) * 100, 2) if n_eval else None,
+        "mape_dengan": round(float(np.mean(ape_dengan)) * 100, 2) if n_eval else None,
+        "n_lebih_baik": int(sum(d < t for d, t in zip(ape_dengan, ape_tanpa))),
+        "n_faktor_di_luar_batas": n_luar_batas,
+        "titik_awal_eval": [min(titik_eval), max(titik_eval)] if titik_eval else [],
+    }
+    if n_eval < MIN_EVAL_KOREKSI:
+        hasil["dipakai"] = False
+        hasil["alasan"] = (
+            f"data terlalu sedikit untuk uji bertingkat: {n_eval} pasangan evaluasi "
+            f"(butuh {MIN_EVAL_KOREKSI})"
+        )
+    elif hasil["mape_dengan"] <= (1 - AMBANG_PERBAIKAN_KOREKSI) * hasil["mape_tanpa"]:
+        hasil["dipakai"] = True
+        hasil["alasan"] = (
+            f"MAPE evaluasi turun dari {hasil['mape_tanpa']:.2f}% menjadi {hasil['mape_dengan']:.2f}% "
+            f"pada {n_eval} pasangan (perbaikan >= {AMBANG_PERBAIKAN_KOREKSI:.0%})"
+        )
+    else:
+        hasil["dipakai"] = False
+        hasil["alasan"] = (
+            f"tidak membaik secara nyata: MAPE evaluasi {hasil['mape_tanpa']:.2f}% tanpa koreksi vs "
+            f"{hasil['mape_dengan']:.2f}% dengan koreksi pada {n_eval} pasangan "
+            f"(butuh perbaikan >= {AMBANG_PERBAIKAN_KOREKSI:.0%})"
+        )
+    return hasil
 
 
 def ringkas_bias(rasio: Dict[int, List[float]]) -> List[Dict[str, Any]]:
@@ -795,6 +874,9 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
 
     forecast_vals = np.maximum(np.asarray(pred, dtype=float), 0)
     bias_per_horizon: List[Dict[str, Any]] = []
+    proyeksi_tanpa_koreksi = forecast_vals.copy()
+    koreksi_bias: Dict[str, Any] = {
+        "dipakai": False, "alasan": "backtest tidak dapat dilakukan", "uji": {}, "faktor_per_horizon": []}
     if terpilih is None:
         lower_vals = upper_vals = np.full(len(forecast_vals), np.nan)
         rincian_selang = [{"langkah": i + 1, "n_galat": 0, "status": "di luar cakupan backtest"}
@@ -802,9 +884,31 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
         selang_ket = "Selang tidak tersedia: backtest tidak dapat dilakukan sehingga galat proyeksi belum terukur."
     else:
         rinci = rasio_per_horizon_rinci(_METODE[kode], y, tgl, min(periods, MAKS_HORIZON_SELANG))
-        rasio_terbaru = terbaru(rinci)
+        rasio_terbaru = terbaru(rinci, n)
         bias_per_horizon = ringkas_bias(rasio_terbaru)
-        galat_h = {hh: [r - 1 for r in v] for hh, v in rasio_terbaru.items()}
+        uji = uji_koreksi_bertingkat(rinci)
+        faktor_h = {}
+        for hh in sorted(rasio_terbaru):
+            f, st = faktor_koreksi(rasio_terbaru[hh])
+            faktor_h[hh] = (f if uji["dipakai"] else 1.0, st, len(rasio_terbaru[hh]), f)
+        koreksi_bias = {
+            "dipakai": uji["dipakai"],
+            "alasan": uji["alasan"],
+            "uji": {k: v for k, v in uji.items() if k not in ("dipakai", "alasan")},
+            "faktor_per_horizon": [
+                {"langkah": hh, "faktor": round(f_dipakai, 4), "faktor_dihitung": round(f_hit, 4),
+                 "n_rasio": n_r, "status": st}
+                for hh, (f_dipakai, st, n_r, f_hit) in faktor_h.items()
+            ],
+        }
+        if uji["dipakai"]:
+            proyeksi_tanpa_koreksi = forecast_vals.copy()
+            faktor_bulan = np.array([faktor_h.get(i + 1, (1.0,))[0] for i in range(len(forecast_vals))])
+            forecast_vals = forecast_vals * faktor_bulan
+            # Selang dari galat yang SUDAH dikoreksi: aktual / (f x prediksi) - 1
+            galat_h = {hh: [r / faktor_h[hh][0] - 1 for r in v] for hh, v in rasio_terbaru.items()}
+        else:
+            galat_h = {hh: [r - 1 for r in v] for hh, v in rasio_terbaru.items()}
         lower_vals, upper_vals, rincian_selang = selang_per_horizon(forecast_vals, galat_h)
         ada = [r["langkah"] for r in rincian_selang if r["status"] == "tersedia"]
         luar = [r["langkah"] for r in rincian_selang if r["status"] == "di luar cakupan backtest"]
@@ -839,6 +943,7 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
         "batas_bawah": lower_vals,
         "batas_atas": upper_vals,
         "status_selang": [r["status"] for r in rincian_selang],
+        "proyeksi_tanpa_koreksi": proyeksi_tanpa_koreksi,
     })
 
     for b in perbandingan:
@@ -872,6 +977,7 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
         "selang_keterangan": selang_ket,
         "selang_per_bulan": rincian_selang,
         "bias_per_horizon": bias_per_horizon,
+        "koreksi_bias": koreksi_bias,
         "perbandingan": perbandingan,
         "dasar_pemilihan": dasar,
         "n_bulan": n,

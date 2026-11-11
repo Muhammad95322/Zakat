@@ -368,3 +368,98 @@ class TestSelangDariGalatBacktest:
         assert chart_peramalan_png(data, df, meta["selang_label"]).startswith(b"\x89PNG")
         fig = chart_forecasting(data, df, meta["selang_label"])
         assert all(tr.name != fc.LABEL_SELANG for tr in fig.data)
+
+
+def _gagal_di(kode, titik_gagal):
+    """Bungkus kandidat agar melempar _ModelGagal pada titik awal (panjang latih) tertentu."""
+    asli = fc._METODE[kode]
+
+    def f(y, tgl, tgl_depan):
+        if len(y) in titik_gagal:
+            raise fc._ModelGagal(f"simulasi gagal konvergen pada t={len(y)}")
+        return asli.fungsi(y, tgl, tgl_depan)
+
+    return fc.Kandidat(asli.kode, asli.label, f, asli.min_latih, asli.min_total, asli.syarat_total, asli.prasyarat)
+
+
+def _pasang(monkeypatch, pengganti):
+    baru = [pengganti if k.kode == pengganti.kode else k for k in fc._KANDIDAT]
+    monkeypatch.setattr(fc, "_KANDIDAT", baru)
+    monkeypatch.setattr(fc, "_METODE", {k.kode: k for k in baru})
+
+
+class TestTidakAndal:
+    # Data garis lurus 12 bulan: H=6, titik awal 3..6 (4 titik); tren linier MAPE 0 (terbaik)
+    DATA = [100 + 10 * i for i in range(12)]
+
+    def test_gagal_lebih_dari_sepertiga_tidak_andal_dan_tidak_terpilih(self, monkeypatch):
+        _pasang(monkeypatch, _gagal_di("tren_linier", {3, 4}))  # gagal 2 dari 4 (> 1/3)
+        _, meta = forecast_donations(_dari_nilai(self.DATA))
+        lin = _baris(meta, "tren_linier")
+        assert lin["andal"] is False and lin["tersedia"] is False and not lin["terpilih"]
+        assert lin["n_gagal"] == 2 and lin["n_jendela"] == 2
+        assert lin["mape"] == pytest.approx(0.0)  # statistik tetap ditampilkan...
+        assert meta["kode_metode"] != "tren_linier"  # ...tetapi tidak dipilih walau MAPE terkecil
+        assert lin["status"].startswith("tidak andal: gagal di 2 dari 4 titik awal")
+        assert "simulasi gagal konvergen" in lin["status"]
+        assert meta["fallback"] and "tidak andal" in meta["fallback_alasan"]
+
+    def test_gagal_tepat_sepertiga_masih_boleh_terpilih(self, monkeypatch):
+        data = [100 + 10 * i for i in range(14)]  # titik 3..8 (6 titik)
+        _pasang(monkeypatch, _gagal_di("tren_linier", {3, 4}))  # 2 dari 6 = tepat 1/3
+        _, meta = forecast_donations(_dari_nilai(data))
+        lin = _baris(meta, "tren_linier")
+        assert lin["andal"] is True and lin["tersedia"] is True
+        assert "gagal di 2 dari 6" in lin["status"]
+        assert meta["kode_metode"] == "tren_linier"
+
+    def test_holt_winters_gagal_konvergen_semua_titik(self, monkeypatch):
+        def selalu_gagal(*a, **k):
+            raise fc._ModelGagal("model tidak konvergen (simulasi)")
+        asli = fc._METODE["holt_winters"]
+        _pasang(monkeypatch, fc.Kandidat(asli.kode, asli.label, selalu_gagal, asli.min_latih))
+        _, meta = forecast_donations(_bulanan(36))
+        hw = _baris(meta, "holt_winters")
+        assert hw["andal"] is False and hw["n_gagal"] == 7 and hw["mape"] is None
+        assert meta["metode"] != METODE_HOLT_WINTERS
+        assert "konvergen" in meta["fallback_alasan"]
+
+
+class TestStabilitas:
+    @staticmethod
+    def _b(nama, per_jendela):
+        nilai = np.array(list(per_jendela.values()), dtype=float)
+        return {"metode": nama, "mape": float(nilai.mean()), "mape_std": float(nilai.std(ddof=1)),
+                "mape_per_jendela": per_jendela}
+
+    def test_tidak_stabil_bila_pemenang_berganti_antar_jendela(self):
+        # A: 10,30,10,30 (rata 20); B: 30,12,30,12 (rata 21): selisih 1, SD selisih per jendela ~20.8
+        a = self._b("A", {1: 10, 2: 30, 3: 10, 4: 30})
+        b = self._b("B", {1: 30, 2: 12, 3: 30, 4: 12})
+        catatan = fc.cek_stabilitas(a, b)
+        assert catatan and "tidak stabil" in catatan
+        assert "lebih baik di 2 dari 4 jendela" in catatan
+
+    def test_stabil_bila_selalu_lebih_baik_dengan_selisih_besar(self):
+        a = self._b("A", {1: 10, 2: 11, 3: 12, 4: 10})
+        b = self._b("B", {1: 30, 2: 32, 3: 31, 4: 33})
+        assert fc.cek_stabilitas(a, b) is None
+
+    def test_tanpa_jendela_bersama_pakai_sd_terbesar(self):
+        a = self._b("A", {1: 10, 2: 30})
+        b = self._b("B", {5: 21, 6: 23})
+        assert "SD MAPE terbesar" in fc.cek_stabilitas(a, b)
+
+    def test_catatan_muncul_di_meta_dan_warning(self):
+        # Deret zig-zag: rata-rata bergerak & tren linier bergantian unggul antar jendela
+        y = [100, 140, 90, 150, 95, 145, 100, 150, 90, 140, 100, 150, 95, 145, 100, 150]
+        _, meta = forecast_donations(_dari_nilai(y))
+        diuji = sorted((b for b in meta["perbandingan"] if b["tersedia"]), key=lambda b: b["mape"])
+        harapan = fc.cek_stabilitas(diuji[0], diuji[1])
+        assert harapan is not None, "kasus uji harus tidak stabil"
+        assert meta["catatan_stabilitas"] == harapan
+        assert "CATATAN: " + harapan in meta["warning"]
+
+    def test_tidak_ada_catatan_bila_hanya_satu_metode(self):
+        _, meta = forecast_donations(_bulanan(5))
+        assert meta["catatan_stabilitas"] is None

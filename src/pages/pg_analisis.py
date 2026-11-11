@@ -15,7 +15,7 @@ from src.analysis import (
     get_distribution_analysis, get_statistical_tests
 )
 from src.rfm import segment_rfm
-from src.forecasting import forecast_donations
+from src.forecasting import forecast_donations, format_mape
 from src.charts import (
     chart_trend_bulanan, chart_komposisi_donut, chart_bar_wilayah,
     chart_lorenz, chart_forecasting
@@ -212,7 +212,11 @@ def show():
     # TAB 6: Proyeksi & Prediksi
     with tab6:
         st.markdown("### Proyeksi Penerimaan 12 Bulan ke Depan")
-        st.caption(f"Metode: **{forecast_meta.get('metode')}** | Estimasi Galat (MAPE): **{forecast_meta.get('mape')}%**")
+        st.caption(f"Metode: **{forecast_meta.get('metode')}** | Estimasi Galat (MAPE backtest): **{format_mape(forecast_meta)}**")
+        if forecast_meta.get("fallback"):
+            st.warning(f"⚠️ Metode cadangan dipakai. {forecast_meta.get('fallback_alasan')}")
+        if forecast_meta.get("mape_keterangan"):
+            st.caption(forecast_meta["mape_keterangan"])
         if forecast_meta.get("warning"):
             st.info(forecast_meta["warning"])
             

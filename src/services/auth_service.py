@@ -1,4 +1,5 @@
 """Layanan autentikasi, registrasi, dan sesi pengguna."""
+import hashlib
 import uuid
 import secrets
 from datetime import timedelta
@@ -9,11 +10,21 @@ from sqlalchemy.orm import Session
 from src.models.user import User
 from src.models.tenant import Tenant
 from src.models.token_model import Token
-from src.auth.hashing import hash_password, verify_password, validate_password_strength
+from src.auth.hashing import hash_password, verify_password, validate_password_strength, verifikasi_tiruan
 from src.auth.jwt_handler import create_access_token, create_refresh_token, decode_token
 from src.services.audit_service import catat_log
-from src.services.email_service import kirim_email, email_verifikasi, email_reset_password
+from src.models.invitation import Invitation
+from src.services.email_service import kirim_email, email_verifikasi, email_reset_password, email_undangan
 from src.config import settings
+
+def hash_token(raw: str) -> str:
+    """SHA-256 dari token acak. Hanya hash yang disimpan di DB, token mentah hanya ada di tautan email."""
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def buat_tautan(page: str, raw_token: str) -> str:
+    return f"{settings.APP_BASE_URL}/?page={page}&token={raw_token}"
+
 
 def register_lembaga(
     db: Session,
@@ -74,14 +85,14 @@ def register_lembaga(
         id=str(uuid.uuid4()),
         user_id=admin_user.id,
         jenis="verifikasi_email",
-        token_hash=raw_token,
+        token_hash=hash_token(raw_token),
         expires_at=utc_now() + timedelta(hours=24)
     )
     db.add(token_obj)
     db.commit()
     
     # Kirim email verifikasi
-    verify_link = f"http://localhost:8501/?page=verify_email&token={raw_token}"
+    verify_link = buat_tautan("verify_email", raw_token)
     body = email_verifikasi(admin_user.nama_lengkap, verify_link)
     kirim_email(admin_user.email, "Verifikasi Email Lembaga - Zakat Insight", body)
     
@@ -99,18 +110,20 @@ def login(
     """Proses login pengguna: return (access_token, refresh_token) atau None."""
     email_clean = email.strip().lower()
     user = db.query(User).filter(User.email == email_clean).first()
-    
+
     if not user:
+        verifikasi_tiruan(password)  # samakan waktu respons (cegah enumerasi email)
         return None
-        
+
     now = utc_now()
     
     # Cek lockout
     if user.locked_until and user.locked_until > now:
         return None
         
-    # Cek aktif & verifikasi
-    if not user.is_active or not user.is_verified:
+    # Cek aktif & verifikasi (tetap jalankan bcrypt agar waktu respons seragam)
+    if not user.is_active or not user.is_verified or (user.tenant is not None and not user.tenant.is_active):
+        verifikasi_tiruan(password)
         return None
         
     # Cek password
@@ -131,7 +144,8 @@ def login(
         user_id=str(user.id),
         tenant_id=str(user.tenant_id) if user.tenant_id else "",
         peran=user.peran,
-        email=user.email
+        email=user.email,
+        sesi_versi=user.sesi_versi or 0,
     )
     refresh_token = create_refresh_token(user_id=str(user.id))
     
@@ -140,20 +154,20 @@ def login(
         id=str(uuid.uuid4()),
         user_id=user.id,
         jenis="refresh",
-        token_hash=refresh_token,
+        token_hash=hash_token(refresh_token),
         expires_at=now + timedelta(days=settings.JWT_REFRESH_EXPIRE_DAYS)
     )
     db.add(token_obj)
     db.commit()
     
-    catat_log(db, user.id, "login", tenant_id=user.tenant_id, detail={"email": user.email}, ip=ip, ua=ua)
+    catat_log(db, user.id, "login", tenant_id=user.tenant_id, ip=ip, ua=ua)  # tanpa email (data pribadi)
     return access_token, refresh_token
 
 
 def verifikasi_email(db: Session, token_str: str) -> bool:
     """Verifikasi email menggunakan token."""
     token_obj = db.query(Token).filter(
-        Token.token_hash == token_str,
+        Token.token_hash == hash_token(token_str or ""),
         Token.jenis == "verifikasi_email",
         Token.used_at == None
     ).first()
@@ -185,13 +199,13 @@ def request_reset_password(db: Session, email: str) -> bool:
         id=str(uuid.uuid4()),
         user_id=user.id,
         jenis="reset_password",
-        token_hash=raw_token,
+        token_hash=hash_token(raw_token),
         expires_at=utc_now() + timedelta(hours=1)
     )
     db.add(token_obj)
     db.commit()
     
-    link = f"http://localhost:8501/?page=reset_password&token={raw_token}"
+    link = buat_tautan("reset_password", raw_token)
     body = email_reset_password(user.nama_lengkap, link)
     kirim_email(user.email, "Reset Kata Sandi - Zakat Insight", body)
     
@@ -202,7 +216,7 @@ def request_reset_password(db: Session, email: str) -> bool:
 def reset_password(db: Session, token_str: str, new_password: str) -> bool:
     """Mereset password dengan token valid."""
     token_obj = db.query(Token).filter(
-        Token.token_hash == token_str,
+        Token.token_hash == hash_token(token_str or ""),
         Token.jenis == "reset_password",
         Token.used_at == None
     ).first()
@@ -221,7 +235,13 @@ def reset_password(db: Session, token_str: str, new_password: str) -> bool:
     user.password_hash = hash_password(new_password)
     user.failed_login_count = 0
     user.locked_until = None
-    token_obj.used_at = utc_now()
+    user.sesi_versi = (user.sesi_versi or 0) + 1  # akhiri semua sesi lama
+    now = utc_now()
+    token_obj.used_at = now
+    # Batalkan token reset lain yang masih berlaku untuk pengguna ini
+    db.query(Token).filter(
+        Token.user_id == user.id, Token.jenis == "reset_password", Token.used_at.is_(None)
+    ).update({Token.used_at: now}, synchronize_session=False)
     db.commit()
     
     catat_log(db, user.id, "reset_password_success", tenant_id=user.tenant_id)
@@ -233,10 +253,139 @@ def logout(db: Session, user_id: str, refresh_token: Optional[str] = None) -> No
     if refresh_token:
         token_obj = db.query(Token).filter(
             Token.user_id == user_id,
-            Token.token_hash == refresh_token
+            Token.token_hash == hash_token(refresh_token)
         ).first()
         if token_obj:
             token_obj.used_at = utc_now()
             db.commit()
     catat_log(db, user_id, "logout")
 
+
+
+# ---------------------------------------------------------------------------
+# Fungsi akun yang dipanggil halaman (sebelumnya tidak ada; audit S2)
+# ---------------------------------------------------------------------------
+PERAN_LEMBAGA = ("admin", "staf", "pembaca")
+MASA_UNDANGAN_JAM = 48
+
+
+class AksesDitolak(PermissionError):
+    """Aksi ditolak oleh pemeriksaan peran/lembaga di lapisan layanan."""
+
+
+def _wajib_admin_lembaga(oleh: dict, tenant_id: str) -> None:
+    """Pemeriksaan server-side: pelaku harus admin lembaga itu (atau super admin)."""
+    if not oleh:
+        raise AksesDitolak("Tidak ada sesi.")
+    if oleh.get("peran") == "super_admin":
+        return
+    if oleh.get("peran") != "admin" or str(oleh.get("tenant_id")) != str(tenant_id):
+        raise AksesDitolak("Hanya admin lembaga ini yang boleh melakukan aksi ini.")
+
+
+def register_tenant(db: Session, nama_lembaga: str, nama_admin: str, email: str, password: str):
+    """Pembungkus register_lembaga untuk halaman pendaftaran; None bila gagal validasi."""
+    try:
+        return register_lembaga(db, nama_lembaga, email, password, nama_admin)
+    except ValueError:
+        db.rollback()
+        return None
+
+
+def change_password(db: Session, user_id: str, password_lama: str, password_baru: str) -> bool:
+    """Ganti sandi setelah memverifikasi sandi lama; sesi lain ikut berakhir."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user or not verify_password(password_lama, user.password_hash):
+        return False
+    valid, _ = validate_password_strength(password_baru)
+    if not valid:
+        return False
+    user.password_hash = hash_password(password_baru)
+    user.sesi_versi = (user.sesi_versi or 0) + 1
+    db.commit()
+    catat_log(db, user.id, "ganti_password", tenant_id=user.tenant_id)
+    return True
+
+
+def token_akses_baru(db: Session, user_id: str) -> Optional[str]:
+    """Token akses baru dengan sesi_versi terkini (dipakai setelah pengguna mengganti sandinya sendiri)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        return None
+    return create_access_token(str(user.id), str(user.tenant_id) if user.tenant_id else "", user.peran,
+                               user.email, user.sesi_versi or 0)
+
+
+def kirim_undangan(db: Session, tenant_id: str, email: str, peran: str, oleh: dict) -> Invitation:
+    """Buat undangan bertoken (disimpan sebagai hash) dan kirim tautannya ke email."""
+    _wajib_admin_lembaga(oleh, tenant_id)
+    if peran not in PERAN_LEMBAGA:
+        raise ValueError("Peran tidak valid.")
+    email_clean = email.strip().lower()
+    if db.query(User).filter(User.email == email_clean).first():
+        raise ValueError("Email sudah terdaftar sebagai pengguna.")
+    from src.services.tenant_service import PAKET_LIMITS
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant or not tenant.is_active:
+        raise ValueError("Lembaga tidak aktif.")
+    batas = PAKET_LIMITS.get(tenant.paket, PAKET_LIMITS["basic"])["max_users"]
+    terpakai = db.query(User).filter(User.tenant_id == tenant_id, User.is_active.is_(True)).count() + len(
+        get_pending_invitations(db, tenant_id))
+    if terpakai >= batas:
+        raise ValueError(f"Batas anggota paket {tenant.paket} ({batas}) tercapai.")
+    raw = secrets.token_urlsafe(32)
+    undangan = Invitation(
+        id=str(uuid.uuid4()), tenant_id=tenant_id, email=email_clean, peran=peran,
+        token_hash=hash_token(raw), invited_by=oleh.get("id"),
+        expires_at=utc_now() + timedelta(hours=MASA_UNDANGAN_JAM),
+    )
+    db.add(undangan)
+    db.commit()
+    kirim_email(email_clean, f"Undangan bergabung ke {tenant.nama} - Zakat Insight",
+                email_undangan(tenant.nama, peran, buat_tautan("terima_undangan", raw)))
+    catat_log(db, oleh.get("id"), "kirim_undangan", tenant_id=tenant_id, detail={"peran": peran})
+    return undangan
+
+
+def get_pending_invitations(db: Session, tenant_id: str) -> list:
+    """Undangan yang belum diterima dan belum kedaluwarsa, hanya milik lembaga itu."""
+    sekarang = utc_now()
+    hasil = db.query(Invitation).filter(
+        Invitation.tenant_id == tenant_id, Invitation.accepted_at.is_(None), Invitation.expires_at > sekarang,
+    ).order_by(Invitation.created_at.desc()).all()
+    return [{"id": i.id, "email": i.email, "peran": i.peran,
+             "created_at": i.created_at.strftime("%d/%m/%Y %H:%M"),
+             "expires_at": i.expires_at.strftime("%d/%m/%Y %H:%M")} for i in hasil]
+
+
+def cancel_invitation(db: Session, invitation_id: str, tenant_id: str, oleh: dict) -> bool:
+    _wajib_admin_lembaga(oleh, tenant_id)
+    inv = db.query(Invitation).filter(Invitation.id == invitation_id, Invitation.tenant_id == tenant_id).first()
+    if not inv:
+        return False
+    db.delete(inv)
+    db.commit()
+    catat_log(db, oleh.get("id"), "batal_undangan", tenant_id=tenant_id)
+    return True
+
+
+def terima_undangan(db: Session, token_str: str, nama_lengkap: str, password: str) -> Tuple[bool, str]:
+    """Terima undangan: buat akun di lembaga pengundang. Email dianggap terverifikasi lewat tautan."""
+    inv = db.query(Invitation).filter(
+        Invitation.token_hash == hash_token(token_str or ""), Invitation.accepted_at.is_(None)).first()
+    if not inv or inv.is_expired:
+        return False, "Undangan tidak valid atau sudah kedaluwarsa."
+    if db.query(User).filter(User.email == inv.email).first():
+        return False, "Email sudah terdaftar."
+    valid, pesan = validate_password_strength(password)
+    if not valid:
+        return False, pesan
+    if not (nama_lengkap or "").strip():
+        return False, "Nama lengkap wajib diisi."
+    user = User(id=str(uuid.uuid4()), tenant_id=inv.tenant_id, email=inv.email, password_hash=hash_password(password),
+                nama_lengkap=nama_lengkap.strip(), peran=inv.peran, is_active=True, is_verified=True)
+    db.add(user)
+    inv.accepted_at = utc_now()
+    db.commit()
+    catat_log(db, user.id, "terima_undangan", tenant_id=inv.tenant_id, detail={"peran": inv.peran})
+    return True, "Akun berhasil dibuat."

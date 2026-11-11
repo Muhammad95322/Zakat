@@ -192,7 +192,10 @@ from streamlit.testing.v1 import AppTest
 at = AppTest.from_file(os.path.join(os.environ["ROOT"], "app.py"), default_timeout=120)
 at.session_state["page"] = "analisis"
 at.session_state["is_logged_in"] = True
-at.session_state["current_user"] = {"id": uid, "tenant_id": tid, "peran": "admin", "nama_lengkap": "X", "email": "x@uji.id"}
+from src.auth.jwt_handler import create_access_token
+token = create_access_token(uid, tid, "admin", "x@uji.id", 0)  # sesi divalidasi terhadap token & DB
+at.session_state["current_user"] = {"id": uid, "tenant_id": tid, "peran": "admin", "nama_lengkap": "X",
+                                    "email": "x@uji.id", "access_token": token}
 at.session_state["selected_upload_id"] = upid
 at.run()
 print("EXC=" + str(len(at.exception)) + " " + " | ".join(e.message for e in at.exception))

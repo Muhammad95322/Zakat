@@ -13,8 +13,14 @@ RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt
 # Copy source code
 COPY . .
 
-# Buat folder uploads dan jalankan init database
-RUN mkdir -p uploads data/sample data/template
+# Pengguna tanpa hak root (audit S8). Kode milik root (hanya-baca bagi aplikasi);
+# hanya folder unggahan yang dapat ditulis.
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin aplikasi \
+    && mkdir -p uploads var data/sample data/template \
+    && chown -R aplikasi:aplikasi /app/uploads /app/var
+USER aplikasi
+# SQLite bawaan (bila DATABASE_URL tidak diset) di folder yang dapat ditulis; compose/Render memakai Postgres
+ENV DATABASE_URL=sqlite:////app/var/zakat_insight.db
 
 EXPOSE 8501
 

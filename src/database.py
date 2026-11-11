@@ -1,4 +1,5 @@
 """Database engine, session factory, and initialization."""
+import os
 from contextlib import contextmanager
 
 from sqlalchemy import create_engine, event
@@ -33,7 +34,8 @@ if DATABASE_URL.startswith("sqlite"):
 engine = create_engine(
     DATABASE_URL,
     connect_args=_connect_args,
-    echo=settings.APP_ENV == "development",
+    # Log SQL memuat parameter (hash sandi, token, data donatur): hanya bila diminta eksplisit
+    echo=os.getenv("SQL_ECHO", "false").lower() == "true",
 )
 
 # Enable WAL mode for SQLite to improve concurrency
@@ -91,5 +93,39 @@ def init_db() -> None:
         User,
     )
 
-    Base.metadata.create_all(bind=engine)
-    print("✅ Database initialized successfully.")
+    hasil = jalankan_migrasi(engine)
+    print(f"✅ Database siap ({hasil}).")
+
+
+def jalankan_migrasi(eng=None) -> str:
+    """Terapkan migrasi Alembic hingga revisi terbaru.
+
+    - DB kosong: upgrade dari awal.
+    - DB lama tanpa tabel alembic_version (dibuat create_all sebelum migrasi ada): di-stamp
+      ke 0001 lalu di-upgrade; bila skemanya sudah terbaru (kolom sesi_versi ada) di-stamp ke head.
+    - DB yang sudah bermigrasi: upgrade ke head.
+    """
+    from pathlib import Path
+
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import inspect
+
+    eng = eng or engine
+    akar = Path(__file__).resolve().parent.parent
+    cfg = Config(str(akar / "alembic.ini"))
+    cfg.set_main_option("script_location", str(akar / "migrasi"))
+    with eng.begin() as conn:
+        cfg.attributes["connection"] = conn
+        insp = inspect(conn)
+        tabel = set(insp.get_table_names())
+        if "alembic_version" not in tabel and "users" in tabel:
+            kolom = {c["name"] for c in insp.get_columns("users")}
+            command.stamp(cfg, "head" if "sesi_versi" in kolom else "0001")
+            keadaan = "DB lama di-stamp lalu dimigrasi"
+        elif "users" not in tabel:
+            keadaan = "skema dibuat dari migrasi"
+        else:
+            keadaan = "migrasi diperbarui"
+        command.upgrade(cfg, "head")
+    return keadaan

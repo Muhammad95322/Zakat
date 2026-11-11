@@ -1,0 +1,17 @@
+# Konfigurasi Streamlit untuk semua lingkungan (audit keamanan S7, R5).
+[server]
+# Perlindungan XSRF (bawaan aktif; ditulis eksplisit agar tidak dimatikan tanpa sengaja)
+enableXsrfProtection = true
+enableCORS = true
+# Selaras dengan MAX_UPLOAD_SIZE_MB aplikasi (bawaan Streamlit 200 MB)
+maxUploadSize = 50
+headless = true
+
+[client]
+# Jangan tampilkan stack trace/jalur berkas server ke pengguna; detail tetap di log server
+showErrorDetails = "none"
+toolbarMode = "viewer"
+
+[browser]
+# Matikan telemetri penggunaan ke pihak ketiga
+gatherUsageStats = false

@@ -470,9 +470,10 @@ def test_f3_langganan_berlabel_tanpa_kontak_palsu():
 
 
 def test_f2_compose_dan_render_mengatur_email_dan_base_url():
-    import yaml
+    # Tanpa PyYAML (bukan dependensi proyek): periksa entri sebagai teks
     akar = _Path(__file__).parent.parent
-    env_app = " ".join(yaml.safe_load((akar / "docker-compose.yml").read_text())["services"]["app"]["environment"])
-    assert "APP_BASE_URL" in env_app and "EMAIL_ENABLED" in env_app
-    kunci = [e["key"] for e in yaml.safe_load((akar / "render.yaml").read_text())["services"][0]["envVars"]]
-    assert "APP_BASE_URL" in kunci and "EMAIL_SMTP_PASS" in kunci
+    compose = (akar / "docker-compose.yml").read_text()
+    blok_app = compose.split("\n  db:")[0]
+    assert "- APP_BASE_URL=" in blok_app and "- EMAIL_ENABLED=" in blok_app
+    render = (akar / "render.yaml").read_text()
+    assert "key: APP_BASE_URL" in render and "key: EMAIL_SMTP_PASS" in render

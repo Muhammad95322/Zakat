@@ -253,7 +253,11 @@ def show():
                 nama_lembaga=tenant.nama if tenant else "Lembaga Zakat",
                 summary_stats=stats,
                 distribution_stats=dist_stats,
-                rfm_summary=rfm_meta
+                rfm_summary=rfm_meta,
+                monthly_df=trend.get("monthly"),
+                composition_df=comp.get("jenis_dana"),
+                forecast_df=forecast_df,
+                forecast_meta=forecast_meta,
             )
             st.download_button(
                 "📑 Unduh Laporan Eksekutif PDF",

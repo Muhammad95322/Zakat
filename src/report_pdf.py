@@ -1,8 +1,34 @@
 """Generator laporan eksekutif PDF profesional menggunakan fpdf2."""
 import io
 from datetime import datetime
+from typing import Optional
+
+import pandas as pd
 from fpdf import FPDF
+
+from src.forecasting import format_mape
 from src.utils import format_rupiah, format_tanggal
+
+
+def _aman(teks) -> str:
+    """Font inti PDF hanya mendukung Latin-1; ganti karakter lain agar tidak error."""
+    return str(teks).replace("\u2014", "-").replace("\u2013", "-").replace("\u2265", ">=").replace(
+        "\u2264", "<=").encode("latin-1", "replace").decode("latin-1")
+
+
+def _sisip_grafik(pdf: FPDF, png: Optional[bytes], judul: str) -> bool:
+    if not png:
+        return False
+    from PIL import Image
+    with Image.open(io.BytesIO(png)) as im:
+        w_px, h_px = im.size
+    lebar = 185.0
+    tinggi = lebar * h_px / w_px
+    if pdf.get_y() + tinggi > pdf.h - pdf.b_margin:
+        pdf.add_page()
+    pdf.image(io.BytesIO(png), x=12, w=lebar, alt_text=judul)
+    pdf.ln(4)
+    return True
 
 class ZakatPDF(FPDF):
     def header(self):
@@ -25,9 +51,17 @@ def generate_pdf_report(
     nama_lembaga: str,
     summary_stats: dict,
     distribution_stats: dict = None,
-    rfm_summary: dict = None
+    rfm_summary: dict = None,
+    monthly_df: Optional[pd.DataFrame] = None,
+    composition_df: Optional[pd.DataFrame] = None,
+    forecast_df: Optional[pd.DataFrame] = None,
+    forecast_meta: Optional[dict] = None,
 ) -> bytes:
-    """Menghasilkan file PDF ringkasan eksekutif."""
+    """Menghasilkan file PDF ringkasan eksekutif.
+
+    Parameter grafik (monthly_df, composition_df, forecast_df, forecast_meta)
+    opsional; bila diisi, laporan memuat halaman grafik dan catatan metode peramalan.
+    """
     pdf = ZakatPDF(orientation="P", unit="mm", format="A4")
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
@@ -43,7 +77,7 @@ def generate_pdf_report(
     
     pdf.set_font("Helvetica", "", 12)
     pdf.set_xy(15, 26)
-    pdf.cell(0, 10, f"Lembaga: {nama_lembaga} | Tanggal Cetak: {format_tanggal(datetime.now())}")
+    pdf.cell(0, 10, _aman(f"Lembaga: {nama_lembaga} | Tanggal Cetak: {format_tanggal(datetime.now())}"))
     
     pdf.ln(30)
     pdf.set_text_color(30, 41, 59)
@@ -55,7 +89,7 @@ def generate_pdf_report(
     
     pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(51, 65, 85)
-    pdf.multi_cell(0, 6, summary_stats.get("interpretasi", "Belum ada catatan interpretasi."))
+    pdf.multi_cell(0, 6, _aman(summary_stats.get("interpretasi", "Belum ada catatan interpretasi.")))
     pdf.ln(5)
     
     # 3. Tabel Indikator Kinerja Utama (KPI)
@@ -97,15 +131,33 @@ def generate_pdf_report(
             f"dengan rasio penyaluran sebesar {distribution_stats.get('rasio', 0)}%. "
             f"Estimasi saldo kas belum tersalurkan adalah {format_rupiah(distribution_stats.get('saldo', 0))}."
         )
-        pdf.multi_cell(0, 6, salur_text)
+        pdf.multi_cell(0, 6, _aman(salur_text))
         
         for w in distribution_stats.get("warnings", []):
             pdf.set_text_color(180, 83, 9)
-            pdf.multi_cell(0, 5, f"- {w}")
+            pdf.multi_cell(0, 5, _aman(f"- {w}"))
             
         pdf.ln(5)
         
-    # 5. Catatan Metode & Asumsi
+    # 5. Grafik Utama (tren, komposisi, peramalan)
+    from src.report_charts import chart_komposisi_png, chart_peramalan_png, chart_tren_png
+    grafik = [
+        (chart_tren_png(monthly_df) if monthly_df is not None else None, "Tren penghimpunan bulanan"),
+        (chart_komposisi_png(composition_df) if composition_df is not None else None, "Komposisi per jenis dana"),
+        (chart_peramalan_png(monthly_df, forecast_df) if forecast_df is not None else None, "Proyeksi penghimpunan"),
+    ]
+    if any(png for png, _ in grafik):
+        pdf.add_page()
+        pdf.set_font("Helvetica", "B", 14)
+        pdf.set_text_color(15, 118, 110)
+        pdf.cell(0, 10, "Grafik Utama", new_x="LMARGIN", new_y="NEXT")
+        for png, judul in grafik:
+            _sisip_grafik(pdf, png, judul)
+        pdf.set_text_color(30, 41, 59)
+
+    # 6. Catatan Metode & Asumsi
+    if pdf.get_y() > pdf.h - 80:
+        pdf.add_page()
     pdf.set_font("Helvetica", "B", 12)
     pdf.set_text_color(15, 118, 110)
     pdf.cell(0, 8, "Catatan Metodologi & Kepatuhan Fikih:", new_x="LMARGIN", new_y="NEXT")
@@ -115,9 +167,22 @@ def generate_pdf_report(
     metode_text = (
         "1. Analisis outlier menggunakan metode IQR (Interquartile Range) dengan faktor 3x untuk mendeteksi transaksi bernilai besar.\n"
         "2. Segmentasi muzaki menggunakan kuantil RFM (Recency, Frequency, Monetary) terkalibrasi per periode.\n"
-        "3. Laporan ini merupakan instrumen transparansi tata kelola ZIS internal lembaga."
+        "3. Laporan ini merupakan instrumen transparansi tata kelola ZIS internal lembaga.\n"
+        "4. Total dana dihitung dari transaksi yang lolos pembersihan (duplikat persis, nominal nol/negatif/"
+        "bukan angka, dan tanggal tidak valid dibuang); outlier tetap dihitung.\n"
+        "5. Koefisien Gini dihitung dari total donasi per muzaki (0 = merata, 1 = sangat timpang)."
     )
-    pdf.multi_cell(0, 4, metode_text)
+    if forecast_meta:
+        metode_text += (
+            f"\n6. Peramalan: metode {forecast_meta.get('metode', '-')}, berdasarkan "
+            f"{forecast_meta.get('n_bulan', '-')} bulan data historis. Interval ~95% = proyeksi +/- 1,96 x "
+            f"simpangan baku residual model (asumsi galat kira-kira normal dan pola historis berlanjut).\n"
+            f"7. Estimasi galat (MAPE backtest): {format_mape(forecast_meta)}. "
+            f"{forecast_meta.get('mape_keterangan', '')}"
+        )
+        if forecast_meta.get("fallback"):
+            metode_text += f"\n8. PERINGATAN: {forecast_meta.get('fallback_alasan')}"
+    pdf.multi_cell(0, 4, _aman(metode_text))
     
     return bytes(pdf.output())
 

@@ -37,6 +37,9 @@ _MIN_HORIZON = 3         # horizon terpendek yang masih dipakai untuk data pende
 MAKS_TITIK_AWAL = 12     # jumlah titik awal (terbaru) yang diuji
 MIN_TITIK_AWAL = 2       # minimal titik awal valid agar metode dianggap teruji
 BATAS_PORSI_GAGAL = 1 / 3  # gagal di lebih dari porsi ini -> "tidak andal"
+LEVEL_SELANG = 0.80        # selang proyeksi empiris dari galat backtest
+MIN_SAMPEL_SELANG = 10     # minimal galat backtest agar selang dihitung
+LABEL_SELANG = f"Selang {LEVEL_SELANG:.0%} (dari galat backtest)"
 _MIN_BULAN_DATA = 3
 # Alias kompatibilitas nama lama
 _MAKS_BULAN_UJI = HORIZON_UJI
@@ -396,6 +399,21 @@ def _tanggal_bulanan(monthly_df: pd.DataFrame) -> pd.DatetimeIndex:
     return pd.DatetimeIndex(periode).to_period("M").to_timestamp()
 
 
+def hitung_selang(proyeksi: np.ndarray, galat_relatif: List[float]) -> Tuple[np.ndarray, np.ndarray]:
+    """Selang empiris: proyeksi x (1 + kuantil galat relatif backtest).
+
+    galat relatif = (aktual - prediksi) / prediksi, dikumpulkan dari semua titik
+    awal dan semua langkah horizon metode terpilih. Batas bawah tidak pernah < 0.
+    """
+    g = np.asarray(galat_relatif, dtype=float)
+    alfa = (1 - LEVEL_SELANG) / 2
+    q_bawah, q_atas = np.quantile(g, [alfa, 1 - alfa])
+    proyeksi = np.maximum(np.asarray(proyeksi, dtype=float), 0)
+    bawah = np.maximum(proyeksi * (1 + q_bawah), 0)
+    atas = np.maximum(proyeksi * (1 + q_atas), bawah)
+    return bawah, atas
+
+
 def _urutan(kode: str) -> int:
     return [k.kode for k in _KANDIDAT].index(kode)
 
@@ -544,10 +562,29 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
         )
         catatan.append("PERINGATAN: " + peringatan_keandalan)
 
-    std_err = float(np.std(residual)) if len(residual) > 1 else float(np.mean(y)) * 0.15
-    forecast_vals = [max(0.0, float(v)) for v in pred]
-    lower_vals = [max(0.0, v - 1.96 * std_err) for v in forecast_vals]
-    upper_vals = [v + 1.96 * std_err for v in forecast_vals]
+    forecast_vals = np.maximum(np.asarray(pred, dtype=float), 0)
+    galat = (terpilih or {}).get("_galat_relatif") or []
+    if terpilih is None:
+        selang_ket = "Selang tidak tersedia: backtest tidak dapat dilakukan sehingga galat proyeksi belum terukur."
+    elif len(galat) < MIN_SAMPEL_SELANG:
+        selang_ket = (
+            f"Selang tidak tersedia: hanya {len(galat)} galat backtest (butuh minimal {MIN_SAMPEL_SELANG})."
+        )
+    else:
+        selang_ket = None
+    if selang_ket is None:
+        lower_vals, upper_vals = hitung_selang(forecast_vals, galat)
+        selang_ket = (
+            f"{LABEL_SELANG}: kuantil {(1 - LEVEL_SELANG) / 2:.0%} dan {1 - (1 - LEVEL_SELANG) / 2:.0%} dari "
+            f"{len(galat)} galat relatif backtest bergulir metode terpilih (semua titik awal, horizon 1-{h} bulan). "
+            f"Untuk bulan proyeksi ke-{h + 1} dan seterusnya dipakai sebaran yang sama, sehingga selang di sana "
+            "kemungkinan terlalu sempit."
+        )
+        selang_tersedia = True
+    else:
+        lower_vals = upper_vals = np.full(len(forecast_vals), np.nan)
+        selang_tersedia = False
+        catatan.append(selang_ket)
 
     df_forecast = pd.DataFrame({
         "periode": [d.strftime("%Y-%m") for d in tgl_depan],
@@ -578,6 +615,9 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
         "fallback_alasan": fallback_alasan,
         "peringatan_keandalan": peringatan_keandalan,
         "catatan_stabilitas": catatan_stabilitas,
+        "selang_tersedia": selang_tersedia,
+        "selang_label": LABEL_SELANG if selang_tersedia else None,
+        "selang_keterangan": selang_ket,
         "perbandingan": perbandingan,
         "dasar_pemilihan": dasar,
         "n_bulan": n,

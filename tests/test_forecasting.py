@@ -316,3 +316,55 @@ class TestPeringatanKeandalan:
     def test_tidak_ada_peringatan_bila_mape_tidak_tersedia(self):
         _, meta = forecast_donations(_bulanan(4))
         assert meta["mape"] is None and meta["peringatan_keandalan"] is None
+
+
+class TestSelangDariGalatBacktest:
+    def test_hitung_selang_manual(self):
+        galat = [i / 10 - 0.5 for i in range(11)]  # -0.5 .. 0.5
+        bawah, atas = fc.hitung_selang(np.array([100.0, 200.0]), galat)
+        # kuantil 10% = -0.4, 90% = 0.4 (interpolasi linier)
+        assert np.allclose(bawah, [60, 120])
+        assert np.allclose(atas, [140, 280])
+
+    def test_selang_tidak_pernah_negatif(self):
+        bawah, atas = fc.hitung_selang(np.array([100.0, 0.0, -5.0]), [-3.0, -2.5, -2.0] * 4)
+        assert (bawah >= 0).all() and (atas >= bawah).all()
+
+    def test_selang_proporsional_terhadap_proyeksi(self):
+        df, meta = forecast_donations(_bulanan(36))
+        assert meta["selang_tersedia"] is True
+        assert meta["selang_label"] == fc.LABEL_SELANG
+        rasio_bawah = df["batas_bawah"] / df["proyeksi"]
+        rasio_atas = df["batas_atas"] / df["proyeksi"]
+        assert np.allclose(rasio_bawah, rasio_bawah.iloc[0])  # kuantil galat yang sama tiap bulan
+        assert np.allclose(rasio_atas, rasio_atas.iloc[0])
+        assert (df["batas_bawah"] >= 0).all()
+        assert (df["batas_atas"] >= df["batas_bawah"]).all()
+
+    def test_tren_sempurna_selang_nol(self):
+        df, meta = forecast_donations(_dari_nilai([100 + 10 * i for i in range(12)]))
+        assert meta["kode_metode"] == "tren_linier" and meta["selang_tersedia"]
+        assert np.allclose(df["batas_bawah"], df["proyeksi"]) and np.allclose(df["batas_atas"], df["proyeksi"])
+
+    def test_galat_terlalu_sedikit_selang_tidak_tersedia(self):
+        df, meta = forecast_donations(_bulanan(7))  # H=3, 2 titik awal -> 6 galat < 10
+        assert meta["mape"] is not None
+        assert meta["selang_tersedia"] is False
+        assert "butuh minimal 10" in meta["selang_keterangan"]
+        assert df["batas_bawah"].isna().all() and df["batas_atas"].isna().all()
+        assert meta["selang_keterangan"] in meta["warning"]
+
+    def test_tanpa_backtest_selang_tidak_tersedia(self):
+        df, meta = forecast_donations(_bulanan(5))
+        assert meta["selang_tersedia"] is False
+        assert "Selang tidak tersedia" in meta["selang_keterangan"]
+        assert df["batas_bawah"].isna().all()
+
+    def test_grafik_tanpa_selang_tetap_jalan(self):
+        from src.charts import chart_forecasting
+        from src.report_charts import chart_peramalan_png
+        data = _bulanan(5)
+        df, meta = forecast_donations(data)
+        assert chart_peramalan_png(data, df, meta["selang_label"]).startswith(b"\x89PNG")
+        fig = chart_forecasting(data, df, meta["selang_label"])
+        assert all(tr.name != fc.LABEL_SELANG for tr in fig.data)

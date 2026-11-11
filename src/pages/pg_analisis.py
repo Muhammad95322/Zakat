@@ -252,7 +252,10 @@ def show():
             st.info(catatan_umum)
             
         if not forecast_df.empty:
-            st.plotly_chart(chart_forecasting(trend["monthly"], forecast_df), use_container_width=True, key="chart_analisis_7")
+            st.plotly_chart(chart_forecasting(trend["monthly"], forecast_df, forecast_meta.get("selang_label")),
+                            use_container_width=True, key="chart_analisis_7")
+            if forecast_meta.get("selang_keterangan"):
+                st.caption(forecast_meta["selang_keterangan"])
             st.dataframe(forecast_df.rename(columns={
                 "periode": "Bulan", "proyeksi": "Proyeksi Donasi (Rp)",
                 "batas_bawah": "Batas Bawah (Rp)", "batas_atas": "Batas Atas (Rp)"

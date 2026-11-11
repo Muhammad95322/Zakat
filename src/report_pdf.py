@@ -180,7 +180,8 @@ def generate_pdf_report(
     grafik = [
         (chart_tren_png(monthly_df) if monthly_df is not None else None, "Tren penghimpunan bulanan"),
         (chart_komposisi_png(composition_df) if composition_df is not None else None, "Komposisi per jenis dana"),
-        (chart_peramalan_png(monthly_df, forecast_df) if forecast_df is not None else None, "Proyeksi penghimpunan"),
+        (chart_peramalan_png(monthly_df, forecast_df, (forecast_meta or {}).get("selang_label"))
+         if forecast_df is not None else None, "Proyeksi penghimpunan"),
     ]
     if any(png for png, _ in grafik):
         pdf.add_page()
@@ -215,8 +216,8 @@ def generate_pdf_report(
     if forecast_meta:
         metode_text += (
             f"\n6. Peramalan: metode {forecast_meta.get('metode', '-')}, berdasarkan "
-            f"{forecast_meta.get('n_bulan', '-')} bulan data historis. Interval ~95% = proyeksi +/- 1,96 x "
-            f"simpangan baku residual model (asumsi galat kira-kira normal dan pola historis berlanjut).\n"
+            f"{forecast_meta.get('n_bulan', '-')} bulan data historis. "
+            f"{forecast_meta.get('selang_keterangan') or ''} Asumsi: pola galat masa lalu berlanjut.\n"
             f"7. Estimasi galat (MAPE backtest): {format_mape(forecast_meta)} (rata-rata backtest bergulir). "
             f"{forecast_meta.get('mape_keterangan', '')} {forecast_meta.get('dasar_pemilihan', '')}"
         )

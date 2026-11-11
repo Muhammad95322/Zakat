@@ -23,6 +23,17 @@ COLUMN_SYNONYMS = {
     "jumlah_penerima": ["jumlah_penerima", "penerima_manfaat", "total_penerima", "kuota_penerima", "jiwa"]
 }
 
+# Kolom minimum agar analisis bisa dijalankan
+KOLOM_WAJIB = {
+    "Penghimpunan": ["tanggal", "jumlah"],
+    "Penyaluran": ["tanggal", "jumlah"],
+}
+
+
+class DataFileError(ValueError):
+    """Kesalahan isi/format berkas data yang aman ditampilkan ke pengguna."""
+
+
 def _normalisasi_string(s: str) -> str:
     """Normalisasi string nama kolom untuk pencocokan."""
     return re.sub(r"[^a-zA-Z0-9]", "_", str(s).strip().lower())
@@ -54,48 +65,110 @@ def deteksi_kolom(df: pd.DataFrame, expected_cols: list) -> Tuple[Dict[str, str]
     return mapping, missing
 
 
+def validasi_kolom_wajib(df: pd.DataFrame, sheet_type: str = "Penghimpunan") -> None:
+    """Pastikan kolom wajib ada (dengan toleransi sinonim).
+
+    Raises:
+        DataFileError: berisi daftar kolom yang hilang dan nama yang diterima.
+    """
+    wajib = KOLOM_WAJIB.get(sheet_type, [])
+    _, missing = deteksi_kolom(df, wajib)
+    if missing:
+        detail = "; ".join(
+            f"'{c}' (nama yang diterima: {', '.join(COLUMN_SYNONYMS.get(c, [c]))})" for c in missing
+        )
+        ada = ", ".join(str(c) for c in df.columns) or "(tidak ada)"
+        raise DataFileError(
+            f"Sheet {sheet_type} tidak memiliki kolom wajib: {detail}. "
+            f"Kolom yang ditemukan: {ada}. Sesuaikan judul kolom atau gunakan template Excel."
+        )
+
+
+def _sheet_kosong(df: pd.DataFrame) -> bool:
+    return df is None or df.empty or df.dropna(how="all").empty
+
+
 def load_file(file_content: bytes, filename: str) -> Dict[str, pd.DataFrame]:
     """Membaca file Excel atau CSV dan mengembalikan dict of DataFrames.
-    
+
     Returns:
         dict: {"Penghimpunan": df_himpun, "Penyaluran": df_salur (optional)}
+
+    Raises:
+        DataFileError: file kosong, rusak, atau sheet penghimpunan kosong.
+            Sheet penyaluran yang kosong diabaikan (tidak dikembalikan).
     """
+    if not file_content:
+        raise DataFileError(f"Berkas '{filename}' kosong (0 byte). Unggah berkas yang berisi data.")
+
     fn = filename.lower()
     res = {}
-    
-    if fn.endswith(".csv"):
-        # Coba encoding utf-8 dan latin-1
-        try:
-            df = pd.read_csv(io.BytesIO(file_content), encoding="utf-8")
-        except UnicodeDecodeError:
-            df = pd.read_csv(io.BytesIO(file_content), encoding="latin-1")
-        res["Penghimpunan"] = df
-    else:
-        # Excel (.xlsx / .xls)
-        excel_file = pd.ExcelFile(io.BytesIO(file_content))
-        sheet_names = excel_file.sheet_names
-        
-        # Cari sheet yang cocok
-        himpun_sheet = None
-        salur_sheet = None
-        
-        for name in sheet_names:
-            norm_name = name.lower()
-            if any(k in norm_name for k in ["himpun", "masuk", "donasi", "terima", "collection", "inflow"]):
-                himpun_sheet = name
-            elif any(k in norm_name for k in ["salur", "keluar", "mustahik", "distribusi", "outflow"]):
-                salur_sheet = name
-                
-        if himpun_sheet:
-            res["Penghimpunan"] = pd.read_excel(excel_file, sheet_name=himpun_sheet)
-        else:
-            # Gunakan sheet pertama sebagai Penghimpunan
-            res["Penghimpunan"] = pd.read_excel(excel_file, sheet_name=sheet_names[0])
-            
-        if salur_sheet:
-            res["Penyaluran"] = pd.read_excel(excel_file, sheet_name=salur_sheet)
-        elif len(sheet_names) > 1 and sheet_names[1] != himpun_sheet:
-            res["Penyaluran"] = pd.read_excel(excel_file, sheet_name=sheet_names[1])
-            
-    return res
 
+    if fn.endswith(".csv"):
+        df = None
+        for enc in ("utf-8", "latin-1"):
+            try:
+                df = pd.read_csv(io.BytesIO(file_content), encoding=enc)
+                break
+            except UnicodeDecodeError:
+                continue
+            except pd.errors.EmptyDataError:
+                raise DataFileError(f"Berkas CSV '{filename}' kosong: tidak ada judul kolom maupun data.")
+            except pd.errors.ParserError as e:
+                raise DataFileError(f"Berkas CSV '{filename}' tidak dapat dibaca (format baris tidak konsisten): {e}")
+        if df is None:
+            raise DataFileError(f"Berkas CSV '{filename}' tidak dapat dibaca. Simpan ulang sebagai CSV UTF-8.")
+        if _sheet_kosong(df):
+            raise DataFileError(f"Berkas CSV '{filename}' tidak berisi baris data.")
+        res["Penghimpunan"] = df
+        return res
+
+    # Excel (.xlsx / .xls)
+    try:
+        excel_file = pd.ExcelFile(io.BytesIO(file_content))
+    except Exception as e:
+        raise DataFileError(
+            f"Berkas Excel '{filename}' rusak atau bukan file Excel yang valid ({type(e).__name__}). "
+            "Buka dan simpan ulang berkas di Excel, lalu unggah kembali."
+        )
+    sheet_names = excel_file.sheet_names
+    if not sheet_names:
+        raise DataFileError(f"Berkas Excel '{filename}' tidak memiliki sheet.")
+
+    # Cari sheet yang cocok
+    himpun_sheet = None
+    salur_sheet = None
+
+    for name in sheet_names:
+        norm_name = name.lower()
+        if any(k in norm_name for k in ["himpun", "masuk", "donasi", "terima", "collection", "inflow"]):
+            himpun_sheet = name
+        elif any(k in norm_name for k in ["salur", "keluar", "mustahik", "distribusi", "outflow"]):
+            salur_sheet = name
+
+    def _baca(sheet):
+        try:
+            return pd.read_excel(excel_file, sheet_name=sheet)
+        except Exception as e:
+            raise DataFileError(f"Sheet '{sheet}' pada berkas '{filename}' tidak dapat dibaca ({type(e).__name__}).")
+
+    nama_himpun = himpun_sheet or sheet_names[0]  # default: sheet pertama
+    df_himpun = _baca(nama_himpun)
+    if _sheet_kosong(df_himpun):
+        raise DataFileError(
+            f"Sheet '{nama_himpun}' (data penghimpunan) pada berkas '{filename}' kosong. "
+            "Isi sheet tersebut dengan data transaksi atau gunakan template Excel."
+        )
+    res["Penghimpunan"] = df_himpun
+
+    nama_salur = None
+    if salur_sheet:
+        nama_salur = salur_sheet
+    elif len(sheet_names) > 1 and sheet_names[1] != himpun_sheet:
+        nama_salur = sheet_names[1]
+    if nama_salur:
+        df_salur = _baca(nama_salur)
+        if not _sheet_kosong(df_salur):
+            res["Penyaluran"] = df_salur
+
+    return res

@@ -1,4 +1,5 @@
 """Halaman Analisis Interaktif ZIS Komprehensif dengan Visualisasi dan Ekspor."""
+import logging
 import os
 import streamlit as st
 import pandas as pd
@@ -8,14 +9,14 @@ from src.database import get_db
 from src.auth.session import get_tenant_id, get_current_user
 from src.services.upload_service import get_upload, get_uploads
 from src.services.tenant_service import get_tenant
-from src.loader import load_file
-from src.cleaning import clean_data
+from src.loader import DataFileError
+from src.pipeline import siapkan_data
 from src.analysis import (
     get_summary_stats, get_trend_analysis, get_composition_analysis,
     get_distribution_analysis, get_statistical_tests
 )
 from src.rfm import segment_rfm
-from src.forecasting import forecast_donations
+from src.forecasting import forecast_donations, format_mape
 from src.charts import (
     chart_trend_bulanan, chart_komposisi_donut, chart_bar_wilayah,
     chart_lorenz, chart_forecasting
@@ -23,6 +24,9 @@ from src.charts import (
 from src.report_excel import generate_excel_report
 from src.report_pdf import generate_pdf_report
 from src.utils import format_rupiah, format_tanggal
+
+logger = logging.getLogger(__name__)
+
 
 def show():
     tenant_id = get_tenant_id()
@@ -68,13 +72,24 @@ def show():
     with open(upload_record.storage_path, "rb") as f:
         file_bytes = f.read()
         
-    dfs = load_file(file_bytes, upload_record.nama_file_asli)
-    raw_himpun = dfs.get("Penghimpunan", pd.DataFrame())
-    raw_salur = dfs.get("Penyaluran", pd.DataFrame())
-    
-    # Jalankan Pembersihan Data Otomatis
-    df_himpun_clean, log_himpun, summary_clean = clean_data(raw_himpun, "Penghimpunan")
-    df_salur_clean, log_salur, _ = clean_data(raw_salur, "Penyaluran") if not raw_salur.empty else (pd.DataFrame(), [], {})
+    # Muat, validasi, dan bersihkan data; tampilkan pesan ramah jika berkas bermasalah
+    try:
+        hasil = siapkan_data(file_bytes, upload_record.nama_file_asli)
+    except DataFileError as e:
+        st.error(f"❌ Berkas tidak dapat dianalisis. {e}")
+        return
+    except Exception as e:  # jangan tampilkan stack trace ke pengguna
+        logger.exception("Gagal memproses berkas %s", upload_record.nama_file_asli)
+        st.error(
+            "❌ Terjadi kesalahan tak terduga saat memproses berkas. "
+            "Pastikan berkas sesuai template, lalu coba lagi."
+        )
+        return
+    df_himpun_clean = hasil["df_himpun"]
+    log_himpun = hasil["log_himpun"]
+    summary_clean = hasil["summary_himpun"]
+    df_salur_clean = hasil["df_salur"]
+    log_salur = hasil["log_salur"]
     
     # Sidebar Filters Global
     st.sidebar.markdown("### 🔍 Filter Analisis")
@@ -133,7 +148,7 @@ def show():
         st.info(f"💡 **Interpretasi Hasil:** {stats['interpretasi']}")
         
         if not trend["monthly"].empty:
-            st.plotly_chart(chart_trend_bulanan(trend["monthly"]), use_container_width=True)
+            st.plotly_chart(chart_trend_bulanan(trend["monthly"]), use_container_width=True, key="chart_analisis_1")
             
         # Kualitas Data Box
         with st.expander("🔍 Laporan Kualitas Data Hasil Pembersihan"):
@@ -147,7 +162,7 @@ def show():
         st.markdown("### Analisis Tren Waktu & Pola Musiman")
         st.info(f"📅 {trend['interpretasi']}")
         if not trend["monthly"].empty:
-            st.plotly_chart(chart_trend_bulanan(trend["monthly"]), use_container_width=True)
+            st.plotly_chart(chart_trend_bulanan(trend["monthly"]), use_container_width=True, key="chart_analisis_2")
             st.dataframe(trend["monthly"].rename(columns={
                 "periode_str": "Bulan", "total_dana": "Total Dana (Rp)",
                 "jumlah_transaksi": "Transaksi", "mom_growth": "Pertumbuhan MoM (%)"
@@ -159,13 +174,13 @@ def show():
         col_d1, col_d2 = st.columns(2)
         with col_d1:
             if "jenis_dana" in comp:
-                st.plotly_chart(chart_komposisi_donut(comp["jenis_dana"], "jenis_dana", "Sebaran Jenis Dana ZIS"), use_container_width=True)
+                st.plotly_chart(chart_komposisi_donut(comp["jenis_dana"], "jenis_dana", "Sebaran Jenis Dana ZIS"), use_container_width=True, key="chart_analisis_3")
         with col_d2:
             if "kanal" in comp:
-                st.plotly_chart(chart_komposisi_donut(comp["kanal"], "kanal", "Kanal Metode Pembayaran"), use_container_width=True)
+                st.plotly_chart(chart_komposisi_donut(comp["kanal"], "kanal", "Kanal Metode Pembayaran"), use_container_width=True, key="chart_analisis_4")
                 
         if "kabupaten_kota" in comp:
-            st.plotly_chart(chart_bar_wilayah(comp["kabupaten_kota"]), use_container_width=True)
+            st.plotly_chart(chart_bar_wilayah(comp["kabupaten_kota"]), use_container_width=True, key="chart_analisis_5")
             
         if "penjelasan" in stat_test:
             st.caption(f"🧪 **Uji Signifikansi Statistik:** {stat_test['penjelasan']}")
@@ -181,7 +196,7 @@ def show():
                 seg_counts = pd.DataFrame(list(rfm_meta["segmen_counts"].items()), columns=["Segmen", "Jumlah Muzaki"])
                 st.dataframe(seg_counts, use_container_width=True)
             with c_rfm2:
-                st.plotly_chart(chart_lorenz(rfm_meta["lorenz_x"], rfm_meta["lorenz_y"], rfm_meta["gini_index"]), use_container_width=True)
+                st.plotly_chart(chart_lorenz(rfm_meta["lorenz_x"], rfm_meta["lorenz_y"], rfm_meta["gini_index"]), use_container_width=True, key="chart_analisis_6")
                 
             st.markdown("#### Daftar Donatur & Kategori")
             st.dataframe(rfm_df[["nama", "terakhir_donasi", "frequency", "monetary", "segmen"]].rename(columns={
@@ -212,12 +227,16 @@ def show():
     # TAB 6: Proyeksi & Prediksi
     with tab6:
         st.markdown("### Proyeksi Penerimaan 12 Bulan ke Depan")
-        st.caption(f"Metode: **{forecast_meta.get('metode')}** | Estimasi Galat (MAPE): **{forecast_meta.get('mape')}%**")
+        st.caption(f"Metode: **{forecast_meta.get('metode')}** | Estimasi Galat (MAPE backtest): **{format_mape(forecast_meta)}**")
+        if forecast_meta.get("fallback"):
+            st.warning(f"⚠️ Metode cadangan dipakai. {forecast_meta.get('fallback_alasan')}")
+        if forecast_meta.get("mape_keterangan"):
+            st.caption(forecast_meta["mape_keterangan"])
         if forecast_meta.get("warning"):
             st.info(forecast_meta["warning"])
             
         if not forecast_df.empty:
-            st.plotly_chart(chart_forecasting(trend["monthly"], forecast_df), use_container_width=True)
+            st.plotly_chart(chart_forecasting(trend["monthly"], forecast_df), use_container_width=True, key="chart_analisis_7")
             st.dataframe(forecast_df.rename(columns={
                 "periode": "Bulan", "proyeksi": "Proyeksi Donasi (Rp)",
                 "batas_bawah": "Batas Bawah (Rp)", "batas_atas": "Batas Atas (Rp)"
@@ -234,7 +253,11 @@ def show():
                 nama_lembaga=tenant.nama if tenant else "Lembaga Zakat",
                 summary_stats=stats,
                 distribution_stats=dist_stats,
-                rfm_summary=rfm_meta
+                rfm_summary=rfm_meta,
+                monthly_df=trend.get("monthly"),
+                composition_df=comp.get("jenis_dana"),
+                forecast_df=forecast_df,
+                forecast_meta=forecast_meta,
             )
             st.download_button(
                 "📑 Unduh Laporan Eksekutif PDF",

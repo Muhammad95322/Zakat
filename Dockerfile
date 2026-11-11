@@ -22,5 +22,6 @@ EXPOSE 8501
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python scripts/check_health.py || exit 1
 
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
+# Validasi konfigurasi dulu: container menolak start jika APP_ENV=production dengan kunci tidak aman
+CMD ["sh", "-c", "python scripts/validate_config.py && exec streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true"]
 

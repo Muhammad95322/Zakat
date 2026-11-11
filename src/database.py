@@ -33,7 +33,9 @@ if settings.DATABASE_URL.startswith("sqlite"):
 # ---------------------------------------------------------------------------
 # Session
 # ---------------------------------------------------------------------------
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# expire_on_commit=False: halaman membaca atribut objek (mis. Upload, Tenant) setelah
+# blok `with get_db()` selesai; tanpa ini SQLAlchemy melempar DetachedInstanceError.
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine)
 
 
 # ---------------------------------------------------------------------------

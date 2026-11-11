@@ -27,9 +27,10 @@
 - 🤝 **Tata Kelola Penyaluran & Kas Dana**:
   - Rasio penyaluran terhadap penghimpunan, sisa saldo kas, serta batas wajar bagian amil (*PSAK 109*).
 - 🔮 **Proyeksi Penerimaan 12 Bulan**:
-  - Prediksi berbasis *Holt-Winters Seasonal Smoothing* lengkap dengan selang kepercayaan 95% dan metrik MAPE.
+  - Metode dipilih sesuai panjang data: rata-rata bergerak (< 12 bulan), tren linier + faktor musiman (12–23 bulan), *Holt-Winters* (≥ 24 bulan, statsmodels). Bila statsmodels tidak ada atau model gagal konvergen, dipakai *Tren linier sederhana* dengan peringatan eksplisit.
+  - Interval ~95% dan **MAPE dari backtest nyata**; jika data terlalu pendek, MAPE ditampilkan "tidak tersedia".
 - 📑 **Ekspor Laporan Resmi**:
-  - **Laporan Eksekutif PDF**: Siap cetak dan presentasi dewan pembina/pengawas.
+  - **Laporan Eksekutif PDF**: Siap cetak, memuat grafik tren bulanan, komposisi jenis dana, proyeksi, serta catatan metode & asumsi.
   - **Berkas Excel Multi-Sheet**: Berisi data bersih, ringkasan KPI, segmentasi RFM, dan log pembersihan.
 - 🔒 **Keamanan & Audit**:
   - Enkripsi password menggunakan `bcrypt` dan otentikasi berbasis `JWT`.
@@ -73,25 +74,35 @@ Buka browser di `http://localhost:8501`.
 
 ## 🔑 Akun Uji Coba (Development)
 
-| Peran | Lembaga | Email | Kata Sandi |
-|---|---|---|---|
-| **Super Admin** | *Pusat (Platform)* | `superadmin@zakatinsight.id` | `SuperAdmin123` |
-| **Admin** | Lazismu Wilayah DIY (Pro) | `admin@lazismu-diy.id` | `Admin123` |
-| **Staf** | Lazismu Wilayah DIY (Pro) | `staf@lazismu-diy.id` | `Staf1234` |
-| **Pembaca** | Lazismu Wilayah DIY (Pro) | `pembaca@lazismu-diy.id` | `Baca1234` |
-| **Admin** | BAZNAS Sleman (Basic) | `admin@baznas-sleman.id` | `Admin123` |
-| **Admin** | YDSF Yogyakarta (Enterprise) | `admin@ydsf-jogja.id` | `Admin123` |
+Kata sandi akun uji **tidak** dicantumkan di README. Untuk membuat akun:
+
+1. **Data & akun uji (khusus development/staging)** — jalankan:
+   ```bash
+   python scripts/seed_dev.py
+   ```
+   Skrip membuat beberapa lembaga contoh beserta akun uji dan mencetak kredensialnya
+   di terminal Anda. Skrip **menolak berjalan** bila `APP_ENV=production`.
+2. **Super Admin (semua lingkungan, termasuk production)** — jalankan:
+   ```bash
+   python scripts/create_superadmin.py
+   ```
+   Anda akan diminta email, nama, dan kata sandi kuat secara interaktif (tidak tersimpan di file mana pun).
 
 ---
 
 ## 🐳 Menjalankan dengan Docker
 
 ```bash
+# APP_SECRET_KEY wajib diisi (lewat environment atau file .env)
+export APP_SECRET_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(48))")
+# Opsional (sangat disarankan di luar laptop sendiri): ganti kata sandi bawaan lokal
+export POSTGRES_PASSWORD='...'  PGADMIN_PASSWORD='...'
+
 # Menjalankan aplikasi + PostgreSQL + pgAdmin
 docker-compose up -d --build
 ```
 - **Aplikasi Zakat Insight**: `http://localhost:8501`
-- **pgAdmin**: `http://localhost:5050` (Email: `admin@zakatinsight.id`, Pass: `pgadmin123`)
+- **pgAdmin**: `http://localhost:5050` (email dari `PGADMIN_EMAIL`, kata sandi dari `PGADMIN_PASSWORD`; nilai bawaan di `docker-compose.yml` hanya untuk lokal)
 
 ---
 
@@ -100,6 +111,15 @@ docker-compose up -d --build
 ```bash
 # Jalankan seluruh unit test
 pytest tests/ -v
+```
+
+Suite mencakup tes unit (loader, pembersihan, RFM/Gini, peramalan, utilitas, PDF, konfigurasi)
+dan tes ujung ke ujung (`tests/test_e2e.py`) yang juga merender halaman Analisis lewat
+`streamlit.testing` serta mensimulasikan statsmodels tidak terpasang dan `APP_ENV=production`.
+
+Validasi konfigurasi sebelum start (dipakai otomatis oleh Dockerfile dan render.yaml):
+```bash
+python scripts/validate_config.py
 ```
 
 Pemeriksaan kesehatan sistem (Healthcheck):
@@ -122,7 +142,7 @@ Zakat/
 ├── scripts/
 │   ├── seed_dev.py             # Seeding basis data awal
 │   ├── create_superadmin.py    # CLI pembuatan Super Administrator
-│   └── check_health.py         # Skrip healthcheck
+│   ├── check_health.py         # Skrip healthcheck
 ├── src/
 │   ├── config.py               # Pengaturan aplikasi
 │   ├── database.py             # Koneksi engine SQLAlchemy
@@ -132,8 +152,10 @@ Zakat/
 │   ├── cleaning.py             # Pembersihan & normalisasi data
 │   ├── analysis.py             # Mesin analisis statistik & KPI
 │   ├── rfm.py                  # Segmentasi RFM & Kurva Lorenz
-│   ├── forecasting.py          # Proyeksi peramalan Holt-Winters
+│   ├── pipeline.py             # Muat -> validasi -> bersihkan (pesan error ramah)
+│   ├── forecasting.py          # Peramalan + MAPE backtest + fallback jujur
 │   ├── charts.py               # Visualisasi interaktif Plotly
+│   ├── report_charts.py        # Grafik statis matplotlib untuk PDF
 │   ├── report_pdf.py           # Generator laporan PDF
 │   ├── report_excel.py         # Generator laporan Excel
 │   ├── auth/                   # Hashing, JWT, dan sesi
@@ -145,6 +167,48 @@ Zakat/
 │   └── pages/                  # Halaman antarmuka pengguna
 └── tests/                      # Suite pengujian otomatis pytest
 ```
+
+---
+
+## 🔐 Keamanan Konfigurasi
+
+- Dengan `APP_ENV=production`, aplikasi **menolak start** bila `APP_SECRET_KEY` masih nilai bawaan/contoh
+  atau kurang dari 32 karakter (dicek di `app.py`, `scripts/validate_config.py`, dan healthcheck).
+- `docker-compose.yml` tidak memberi nilai bawaan untuk `APP_SECRET_KEY`; `docker compose up` gagal sampai kunci diisi.
+- Kata sandi Postgres/pgAdmin di `docker-compose.yml` dapat dioverride lewat `POSTGRES_PASSWORD` dan `PGADMIN_PASSWORD`;
+  nilai bawaannya hanya untuk pengembangan lokal. Port DB dan pgAdmin hanya dibuka di `127.0.0.1`.
+- `scripts/seed_dev.py` menolak berjalan bila `APP_ENV=production`.
+
+---
+
+## 📝 Asumsi & Catatan Metode
+
+Asumsi yang diambil selama perbaikan rilis (silakan koreksi bila tidak sesuai kebutuhan lembaga):
+
+1. **Kolom wajib** sheet penghimpunan hanya `tanggal` dan `jumlah` (atau sinonimnya, mis. `tgl`, `nominal`).
+   Kolom lain opsional; analisis yang membutuhkannya (mis. RFM tanpa `id_muzaki`/`nama_muzaki`) menyesuaikan.
+   Sheet penyaluran bersifat opsional: bila kosong atau kolom wajibnya hilang, sheet diabaikan dengan catatan di log, analisis penghimpunan tetap berjalan.
+2. **Berkas divalidasi saat unggah**: berkas kosong, rusak, tanpa kolom wajib, atau tanpa satu pun baris valid
+   ditolak sebelum disimpan dan tidak memakan kuota. Berkas lama yang sudah tersimpan tetap divalidasi saat dianalisis.
+3. **Pembersihan**: baris dengan `jumlah` teks/nol/negatif dan tanggal tidak valid dibuang dan dicatat di log;
+   duplikat persis dihapus; outlier (IQR × 3) tetap dihitung dalam total. Total di KPI = jumlah `jumlah` setelah pembersihan
+   (diverifikasi otomatis terhadap perhitungan pandas langsung di `tests/test_e2e.py`).
+4. **Peramalan**: metode per panjang data — rata-rata 3 bulan (3–11 bulan), tren linier + faktor musiman bulanan
+   (12–23 bulan), Holt-Winters aditif periode 12 (≥ 24 bulan). Fallback = tren linier sederhana tanpa musiman.
+5. **MAPE backtest**: hingga 6 bulan terakhir disisihkan sebagai data uji dengan syarat minimal 3 bulan uji dan
+   data latih sepanjang minimum metode (3 / 12 / 24 bulan). Karena itu MAPE "tidak tersedia" untuk data 3–5, 12–14,
+   dan 24–26 bulan. Bulan dengan nilai aktual 0 dikecualikan dari MAPE. Nilai MAPE dilaporkan apa adanya (bisa > 50%).
+   Holt-Winters yang memberi `ConvergenceWarning` diperlakukan sebagai gagal konvergen sehingga fallback dipakai.
+6. **Interval ~95%** = proyeksi ± 1,96 × simpangan baku residual in-sample; asumsi galat kira-kira normal dan pola historis berlanjut.
+   Interval ini cenderung terlalu sempit untuk horizon jauh.
+7. **RFM**: bila banyak nilai recency/monetary kembar sehingga kuantil tidak unik, skor kuantil dihitung dari peringkat
+   (sebelumnya kasus ini membuat aplikasi crash).
+8. **Grafik PDF** dirender dengan matplotlib (bukan plotly+kaleido) agar tidak memerlukan browser/Chrome di server.
+   Teks PDF memakai font inti Latin-1; karakter di luar itu (emoji, dsb.) diganti `?`.
+9. **Sesi basis data** memakai `expire_on_commit=False` karena halaman membaca objek setelah sesi ditutup.
+10. File `.env` tidak lagi di-mount ke container; Docker Compose tetap membaca `.env` di folder proyek untuk substitusi variabel,
+    dan aplikasi membaca konfigurasi dari environment variable.
+11. Data contoh di `data/sample/` sepenuhnya sintetis (dibuat `src/sample_data.py`), bukan data donatur asli.
 
 ---
 

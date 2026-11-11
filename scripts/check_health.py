@@ -21,6 +21,7 @@ def check():
     # 2. Cek Konfigurasi
     try:
         from src.config import settings
+        settings.validate()
         checks.append(("Konfigurasi Lingkungan", True, f"ENV={settings.APP_ENV}"))
     except Exception as e:
         checks.append(("Konfigurasi Lingkungan", False, str(e)))

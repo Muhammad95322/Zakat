@@ -57,7 +57,7 @@ cd Zakat
 cp .env.example .env
 
 # Pasang pustaka
-pip install -r requirements.txt
+pip install -r requirements.txt -c constraints.txt
 ```
 
 ### 3. Inisialisasi & Data Seed Development
@@ -136,7 +136,8 @@ python scripts/check_health.py
 ```
 Zakat/
 ├── app.py                      # Router utama aplikasi Streamlit
-├── requirements.txt            # Dependensi paket Python
+├── requirements.txt            # Dependensi paket Python (batas minimum)
+├── constraints.txt             # Versi pasti pustaka numerik (wajib dipakai: -c constraints.txt)
 ├── Dockerfile                  # Konfigurasi container produksi
 ├── docker-compose.yml          # Stack PostgreSQL + App + pgAdmin
 ├── render.yaml                 # Spesifikasi deploy Render Cloud
@@ -276,6 +277,38 @@ metode terpilih untuk data bawaan tetap tren linier (26,86%).
 
 **Waktu hitung** (`python scripts/ukur_waktu_peramalan.py`, median 5 ulangan): 36 bulan **0,34 detik**, 120 bulan
 **0,81 detik** (target < 15 detik). Holt-Winters mendominasi; tanpa statsmodels 0,03–0,05 detik. Tidak perlu cache.
+
+---
+
+## 📌 Memperbarui `constraints.txt`
+
+Hasil peramalan (terutama Holt-Winters) bergantung pada versi statsmodels, numpy, scipy, dan pandas. Contoh nyata:
+dengan statsmodels 0.14.4, numpy 2.2.6, dan scipy 1.15.3 (semuanya masih diizinkan `requirements.txt`),
+Holt-Winters gagal konvergen di **7 dari 7** titik awal pada data contoh. Dengan versi di `constraints.txt`,
+ketujuhnya konvergen. Karena itu semua instalasi resmi (CI, Dockerfile, render.yaml, README) memakai
+`pip install -r requirements.txt -c constraints.txt`.
+
+Langkah memperbarui versi dengan aman:
+
+1. **Sebelum mengubah**, di lingkungan dengan constraints lama, simpan hasil acuan:
+   ```bash
+   python -m pytest -q
+   ```
+   ```bash
+   for a in "" "--transaksi 2000" "--berkas data/sample/data_contoh.xlsx"; do python scripts/bandingkan_metode.py $a; done > /tmp/sebelum.txt
+   ```
+2. Ubah versi di `constraints.txt`. Pastikan versi itu tersedia untuk **Python 3.11 dan 3.12** (Dockerfile memakai 3.11);
+   bila tidak, pakai penanda lingkungan, mis. `numpy==2.5.4; python_version >= "3.12"`.
+3. Pasang ulang di venv bersih untuk tiap versi Python, lalu jalankan lagi pytest dan skrip pembanding:
+   ```bash
+   python3.11 -m venv /tmp/v311 && /tmp/v311/bin/pip install -r requirements.txt -c constraints.txt
+   ```
+   ```bash
+   for a in "" "--transaksi 2000" "--berkas data/sample/data_contoh.xlsx"; do python scripts/bandingkan_metode.py $a; done > /tmp/sesudah.txt
+   ```
+4. Bandingkan `diff /tmp/sebelum.txt /tmp/sesudah.txt`. Perubahan MAPE, jumlah jendela gagal, atau metode terpilih
+   harus dijelaskan di deskripsi PR (bukan disembunyikan); perbarui tabel hasil di README bila berubah.
+5. CI menjalankan seluruh tes di Python 3.11 dan 3.12 serta membangun image Docker dengan constraints yang sama.
 
 ---
 

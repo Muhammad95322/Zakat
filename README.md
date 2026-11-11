@@ -374,8 +374,18 @@ Asumsi yang diambil selama perbaikan rilis (silakan koreksi bila tidak sesuai ke
     environment. Lokasi bisa diubah dengan `APP_ENV_FILE`; string kosong menonaktifkan pemuatan (dipakai di tes dan CI).
     `.dockerignore` mencegah `.env`, `*.db`, dan `uploads/` ikut masuk image Docker.
 14. **CI** (`.github/workflows/tests.yml`) menjalankan pytest di Python 3.11 dan 3.12 pada setiap pull request dan pada
-    push ke `main` (push ke branch lain tidak memicu job ganda),
+    push ke `main` (push ke branch lain tidak memicu job ganda). Job `docker` membangun image dari Dockerfile (tanpa push
+    ke registry), menjalankan `validate_config.py` (development lolos, production dengan kunci bawaan ditolak), mengimpor
+    semua modul, menjalankan pytest di dalam image tanpa jaringan, dan memeriksa `docker compose config`
+    (valid dengan kunci dummy, gagal jelas tanpa `APP_SECRET_KEY`),
     dengan cache pip dan tanpa rahasia apa pun.
+15. **Docker**: Dockerfile tidak lagi memasang `gcc` lewat apt karena semua dependensi tersedia sebagai wheel untuk
+    Python 3.11 (diverifikasi dengan `pip install --only-binary=:all:`). Saat container start, tabel basis data dibuat
+    (`init_db`) sebelum Streamlit berjalan, sehingga healthcheck langsung sehat (sebelumnya container "unhealthy" sampai
+    ada pengunjung pertama). Driver PostgreSQL `psycopg[binary]` ditambahkan (sebelumnya tidak ada, sehingga
+    `docker compose up` gagal saat menyambung ke Postgres); URL `postgres://` (Render) dan `postgresql://` dinormalkan ke
+    `postgresql+psycopg://` di `src/database.py`. Diverifikasi lokal: `docker compose up` dengan Postgres 16 → app dan db
+    healthy, `check_health.py` lulus, Streamlit merespons 200.
 
 ---
 

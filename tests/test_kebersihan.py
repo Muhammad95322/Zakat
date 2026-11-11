@@ -77,3 +77,20 @@ def test_env_file_tidak_menimpa_environment(tmp_path):
 def test_env_file_tidak_ada(tmp_path):
     env, versi, _ = _baca_config(tmp_path / "tidak-ada.env", {})
     assert env == "development"
+
+
+def test_normalisasi_url_db():
+    from src.database import normalisasi_url_db
+    assert normalisasi_url_db("postgres://u:p@h:5432/db") == "postgresql+psycopg://u:p@h:5432/db"
+    assert normalisasi_url_db("postgresql://u:p@db/x") == "postgresql+psycopg://u:p@db/x"
+    assert normalisasi_url_db("postgresql+psycopg2://u:p@db/x") == "postgresql+psycopg2://u:p@db/x"
+    assert normalisasi_url_db("sqlite:///zakat.db") == "sqlite:///zakat.db"
+
+
+def test_url_postgres_bisa_dibuat_engine():
+    pytest = __import__("pytest")
+    pytest.importorskip("psycopg")
+    from sqlalchemy import create_engine
+    from src.database import normalisasi_url_db
+    eng = create_engine(normalisasi_url_db("postgres://u:p@localhost:5432/x"))
+    assert eng.dialect.driver == "psycopg"

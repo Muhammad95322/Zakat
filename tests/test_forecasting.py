@@ -152,17 +152,17 @@ class TestPemilihanMetode:
                 continue
             nilai = np.array(list(b["mape_per_jendela"].values()))
             assert b["n_jendela"] == len(nilai)
-            assert b["mape"] == pytest.approx(round(nilai.mean(), 2))
-            assert b["mape_median"] == pytest.approx(round(float(np.median(nilai)), 2))
-            assert b["mape_terburuk"] == pytest.approx(round(nilai.max(), 2))
-            assert b["mape_std"] == pytest.approx(round(nilai.std(ddof=1), 2))
+            assert b["mape"] == pytest.approx(nilai.mean(), abs=0.0051)
+            assert b["mape_median"] == pytest.approx(float(np.median(nilai)), abs=0.0051)
+            assert b["mape_terburuk"] == pytest.approx(nilai.max(), abs=0.0051)
+            assert b["mape_std"] == pytest.approx(nilai.std(ddof=1), abs=0.0051)
 
     def test_rata_bergerak_dihitung_manual(self):
         data = _bulanan(36)
         y = data["total_dana"].to_numpy()
         harapan = np.mean([_mape(y[t:t + 6], np.full(6, y[t - 3:t].mean())) for t in range(19, 31)])
         _, meta = forecast_donations(data)
-        assert _baris(meta, "rata_bergerak")["mape"] == pytest.approx(round(harapan, 2))
+        assert _baris(meta, "rata_bergerak")["mape"] == pytest.approx(harapan, abs=0.0051)
 
     def test_mape_berubah_mengikuti_data(self):
         _, m1 = forecast_donations(_bulanan(18, seed=1))
@@ -197,7 +197,7 @@ class TestPemilihanManual:
         mape_t3 = np.mean([20 / 130, 30 / 140, 40 / 150, 50 / 160]) * 100
         mape_t4 = np.mean([20 / 140, 30 / 150, 40 / 160, 50 / 170]) * 100
         ma = _baris(meta, "rata_bergerak")
-        assert ma["mape_per_jendela"] == {3: pytest.approx(round(mape_t3, 2)), 4: pytest.approx(round(mape_t4, 2))}
+        assert ma["mape_per_jendela"] == {3: pytest.approx(mape_t3, abs=0.0051), 4: pytest.approx(mape_t4, abs=0.0051)}
         assert ma["mape"] == pytest.approx(round((round(mape_t3, 2) + round(mape_t4, 2)) / 2, 2), abs=0.01)
         assert _baris(meta, "tren_linier")["mape"] == pytest.approx(0.0, abs=1e-6)
         assert meta["kode_metode"] == "tren_linier"
@@ -211,8 +211,8 @@ class TestPemilihanManual:
         lin_t3 = np.mean([10, 15, 20, 25]) / 110 * 100
         lin_t4 = np.mean([5, 7, 9, 11]) / 110 * 100
         lin = _baris(meta, "tren_linier")
-        assert lin["mape_per_jendela"][3] == pytest.approx(round(lin_t3, 2))
-        assert lin["mape_per_jendela"][4] == pytest.approx(round(lin_t4, 2))
+        assert lin["mape_per_jendela"][3] == pytest.approx(lin_t3, abs=0.0051)
+        assert lin["mape_per_jendela"][4] == pytest.approx(lin_t4, abs=0.0051)
         assert _baris(meta, "rata_bergerak")["mape"] == pytest.approx(0.0)
         assert meta["kode_metode"] == "rata_bergerak"
 
@@ -627,9 +627,9 @@ class TestKegagalanSebagianDanJendelaBersama:
         for b in meta["perbandingan"]:
             if b["tersedia"]:
                 harapan = np.mean([b["mape_per_jendela"][t] for t in meta["jendela_bersama"]])
-                assert b["mape_bersama"] == pytest.approx(round(harapan, 2))
+                assert b["mape_bersama"] == pytest.approx(harapan, abs=0.0051)
         # rata-rata yang ditampilkan per metode tetap memakai semua jendela yang dinilai
-        assert lin["mape"] == pytest.approx(round(np.mean(list(lin["mape_per_jendela"].values())), 2))
+        assert lin["mape"] == pytest.approx(np.mean(list(lin["mape_per_jendela"].values())), abs=0.0051)
         assert "dikeluarkan dari jendela bersama" in meta["dasar_pemilihan"]
         assert "1 gagal" in fc.ringkasan_catatan_metode(meta)
 

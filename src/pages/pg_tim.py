@@ -88,6 +88,17 @@ def show():
                             if st.button("Nonaktifkan", key=f"deact_{member.get('id')}", use_container_width=True, type="secondary"):
                                 st.session_state[f"confirm_deact_{member.get('id')}"] = True
 
+                        if not member.get("is_active") and member.get("id") != (user or {}).get("id"):
+                            if st.button("Hapus data", key=f"hapus_{member.get('id')}", use_container_width=True):
+                                try:
+                                    from src.services.data_pribadi import hapus_pengguna
+                                    with get_db() as db4:
+                                        hapus_pengguna(db4, member.get("id"), oleh=user)
+                                    st.success("Data pengguna dihapus; unggahannya tetap milik lembaga.")
+                                    st.rerun()
+                                except (ValueError, PermissionError) as ex:
+                                    st.error(str(ex))
+
                         if st.session_state.get(f"confirm_deact_{member.get('id')}"):
                             st.warning(
                                 f"Yakin nonaktifkan **{member.get('nama_lengkap')}**?"

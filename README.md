@@ -57,7 +57,7 @@ cd Zakat
 cp .env.example .env
 
 # Pasang pustaka
-pip install -r requirements.txt
+pip install -r requirements.txt -c constraints.txt
 ```
 
 ### 3. Inisialisasi & Data Seed Development
@@ -136,7 +136,8 @@ python scripts/check_health.py
 ```
 Zakat/
 ├── app.py                      # Router utama aplikasi Streamlit
-├── requirements.txt            # Dependensi paket Python
+├── requirements.txt            # Dependensi paket Python (batas minimum)
+├── constraints.txt             # Versi pasti pustaka numerik (wajib dipakai: -c constraints.txt)
 ├── Dockerfile                  # Konfigurasi container produksi
 ├── docker-compose.yml          # Stack PostgreSQL + App + pgAdmin
 ├── render.yaml                 # Spesifikasi deploy Render Cloud
@@ -231,6 +232,9 @@ tampil terlalu optimistis (mis. 18,20% untuk rata-rata bergerak, padahal rata-ra
 
 ### Hasil backtest bergulir (versi sekarang)
 
+Versi pustaka (dikunci `constraints.txt`): statsmodels 0.15.0, numpy 2.4.6, scipy 1.17.1, pandas 3.1.1. Semua 7 titik
+awal Holt-Winters konvergen (0 gagal) pada kedua data.
+
 36 bulan data, horizon 6 bulan, titik awal = bulan latih 19–30 (12 jendela; Holt-Winters 24–30 karena butuh
 24 bulan latih). "Bersama" = rata-rata pada 7 jendela (bulan latih 24–30) yang diuji semua metode; kolom inilah
 dasar peringkat. MAPE dalam persen. Reproduksi: `python scripts/bandingkan_metode.py [--transaksi 2000 | --berkas data/sample/data_contoh.xlsx]`.
@@ -274,8 +278,47 @@ disetel untuk mencocokkannya.
 Tanpa statsmodels, Holt-Winters tercatat "tidak tersedia" tanpa angka; jendela bersama 5 metode lainnya menjadi 12 dan
 metode terpilih untuk data bawaan tetap tren linier (26,86%).
 
-**Waktu hitung** (`python scripts/ukur_waktu_peramalan.py`, median 5 ulangan): 36 bulan **0,34 detik**, 120 bulan
-**0,81 detik** (target < 15 detik). Holt-Winters mendominasi; tanpa statsmodels 0,03–0,05 detik. Tidak perlu cache.
+**Reproduksibilitas lintas versi Python** (venv bersih, `pip install -r requirements.txt -c constraints.txt`):
+Python 3.11.18 dan 3.12.3 memberi hasil **identik**, termasuk MAPE Holt-Winters per jendela (61,51% dan 82,59%; 7 dinilai,
+0 gagal), dan 202 tes lulus di keduanya. Angka 63,13% / 102,57% yang dilaporkan dari lingkungan lain tidak dapat
+direproduksi di sini; dengan statsmodels 0,14.4 + numpy 2.2.6 + scipy 1.15.3, Holt-Winters justru gagal di 7 dari 7
+titik awal. Itulah alasan versi dikunci.
+
+**Waktu hitung** (`python scripts/ukur_waktu_peramalan.py`, median 5 ulangan, termasuk backtest selang hingga 12 bulan):
+36 bulan **0,28 detik**, 120 bulan **0,75 detik** (target < 15 detik). Holt-Winters mendominasi; tanpa statsmodels
+0,03–0,05 detik. Tidak perlu cache.
+
+---
+
+## 📌 Memperbarui `constraints.txt`
+
+Hasil peramalan (terutama Holt-Winters) bergantung pada versi statsmodels, numpy, scipy, dan pandas. Contoh nyata:
+dengan statsmodels 0.14.4, numpy 2.2.6, dan scipy 1.15.3 (semuanya masih diizinkan `requirements.txt`),
+Holt-Winters gagal konvergen di **7 dari 7** titik awal pada data contoh. Dengan versi di `constraints.txt`,
+ketujuhnya konvergen. Karena itu semua instalasi resmi (CI, Dockerfile, render.yaml, README) memakai
+`pip install -r requirements.txt -c constraints.txt`.
+
+Langkah memperbarui versi dengan aman:
+
+1. **Sebelum mengubah**, di lingkungan dengan constraints lama, simpan hasil acuan:
+   ```bash
+   python -m pytest -q
+   ```
+   ```bash
+   for a in "" "--transaksi 2000" "--berkas data/sample/data_contoh.xlsx"; do python scripts/bandingkan_metode.py $a; done > /tmp/sebelum.txt
+   ```
+2. Ubah versi di `constraints.txt`. Pastikan versi itu tersedia untuk **Python 3.11 dan 3.12** (Dockerfile memakai 3.11);
+   bila tidak, pakai penanda lingkungan, mis. `numpy==2.5.4; python_version >= "3.12"`.
+3. Pasang ulang di venv bersih untuk tiap versi Python, lalu jalankan lagi pytest dan skrip pembanding:
+   ```bash
+   python3.11 -m venv /tmp/v311 && /tmp/v311/bin/pip install -r requirements.txt -c constraints.txt
+   ```
+   ```bash
+   for a in "" "--transaksi 2000" "--berkas data/sample/data_contoh.xlsx"; do python scripts/bandingkan_metode.py $a; done > /tmp/sesudah.txt
+   ```
+4. Bandingkan `diff /tmp/sebelum.txt /tmp/sesudah.txt`. Perubahan MAPE, jumlah jendela gagal, atau metode terpilih
+   harus dijelaskan di deskripsi PR (bukan disembunyikan); perbarui tabel hasil di README bila berubah.
+5. CI menjalankan seluruh tes di Python 3.11 dan 3.12 serta membangun image Docker dengan constraints yang sama.
 
 ---
 
@@ -308,6 +351,11 @@ Asumsi yang diambil selama perbaikan rilis (silakan koreksi bila tidak sesuai ke
      bersama karena rata-rata pada jendela berbeda terbukti bias (lihat bagian hasil di atas).
    - **Tidak andal**: metode yang gagal (mis. tidak konvergen) di lebih dari 1/3 titik awal yang dicoba ditandai
      "tidak andal" dan tidak dapat terpilih; statistik jendela yang berhasil tetap ditampilkan.
+   - **Kegagalan sebagian & jendela bersama**: kolom "Jendela dinilai" menghitung jendela yang benar-benar dinilai (bukan
+     yang dicoba); kegagalan dicatat terpisah beserta alasannya. Bila satu metode andal gagal di titik awal t, t
+     dikeluarkan dari jendela bersama untuk **semua** metode (dasar peringkat), dan hal itu disebut di dasar pemilihan;
+     rata-rata MAPE yang ditampilkan per metode tetap memakai semua jendela yang berhasil ia nilai. Versi Python dan
+     pustaka serta ringkasan kegagalan tercatat di meta dan ditampilkan di catatan metode UI, PDF, dan Excel.
    - **Tidak stabil**: catatan muncul bila |selisih rata-rata MAPE| dua metode teratas pada jendela dasar peringkat
      < simpangan baku selisih per jendela (berpasangan).
    Syarat data latih minimum: rata-rata bergerak & tren linier 3 bulan; tren + musiman, naif musiman, dan tren + Ramadan
@@ -321,11 +369,23 @@ Asumsi yang diambil selama perbaikan rilis (silakan koreksi bila tidak sesuai ke
    (dapat berbeda 1–2 hari dari penetapan resmi). Fitur bulanan = porsi hari Ramadan dalam bulan itu (jumlah per
    Ramadan = 1) dan penanda bulan Idulfitri; model = regresi tren linier + kedua fitur. Kandidat dinonaktifkan dengan
    pesan jelas bila data atau 12 bulan proyeksi berada di luar 2015–2030, atau bila periode latih tidak berisi Ramadan.
-6. **Selang 80% dari galat backtest**: galat relatif (aktual − prediksi) / prediksi metode terpilih dikumpulkan dari
-   semua titik awal dan langkah horizon 1–H; selang = proyeksi × (1 + kuantil 10% dan 90%). Level 80% (bukan 95%)
-   dipilih karena dengan ~72 galat kuantil 2,5%/97,5% hanya ditentukan oleh 1–2 nilai ekstrem. Bila galat < 10 atau
-   tanpa backtest, selang "tidak tersedia" (kolom batas kosong) beserta alasannya. Batas bawah tidak pernah < 0.
-   Bulan proyeksi ke-7–12 memakai sebaran galat horizon 1–6, sehingga selang di sana kemungkinan terlalu sempit.
+6. **Selang 80% per langkah horizon**: untuk metode terpilih dijalankan backtest kedua dengan horizon hingga **12 bulan**
+   (= horizon proyeksi). Bulan proyeksi ke-h memakai galat relatif (aktual − prediksi) / prediksi pada langkah h saja,
+   dari maksimal 12 titik awal terbaru yang mencapai bulan itu (t + h ≤ n, t ≥ data latih minimum metode); selang =
+   proyeksi × (1 + kuantil 10% dan 90%). Level 80% (bukan 95%) dipilih karena dengan ≤ 12 galat per langkah kuantil
+   2,5%/97,5% hanya ditentukan oleh nilai ekstrem.
+   - **Mengapa backtest selang sampai 12 bulan, sedangkan pemilihan tetap 6 bulan**: selang harus mencerminkan galat nyata
+     pada jarak yang sama dengan bulan proyeksinya; pemilihan metode tetap memakai horizon 6 agar arti MAPE tidak berubah
+     dan tersedia lebih banyak titik awal untuk perbandingan.
+   - **Syarat minimal**: tiap langkah butuh ≥ **6 galat** (≥ 6 titik awal yang mencapai langkah itu). Untuk bulan ke-h
+     dibutuhkan n ≥ data latih minimum + h + 5. Untuk bulan ke-12: rata-rata bergerak/tren linier ≥ 20 bulan data;
+     tren + musiman, naif musiman, tren + Ramadan ≥ 29 bulan; Holt-Winters ≥ 41 bulan.
+   - Langkah dengan 1–5 galat: "tidak tersedia". Langkah tanpa titik awal yang mencapainya: "di luar cakupan backtest".
+     Keduanya tanpa selang (kolom batas kosong, pita grafik tidak digambar) dan diberi catatan; tidak ada ekstrapolasi.
+   - Batas bawah tidak pernah < 0. Selang empiris bisa tidak memuat proyeksi titik bila metode bias di backtest
+     (mis. tren linier pada data contoh bawaan cenderung memproyeksikan terlalu rendah di backtest, sehingga di 10 dari
+     12 bulan batas bawah selang berada di atas proyeksi titik);
+     itu informasi jujur tentang bias, bukan kesalahan hitung.
 7. **RFM**: bila banyak nilai recency/monetary kembar sehingga kuantil tidak unik, skor kuantil dihitung dari peringkat
    (sebelumnya kasus ini membuat aplikasi crash).
 8. **Grafik PDF** dirender dengan matplotlib (bukan plotly+kaleido) agar tidak memerlukan browser/Chrome di server.
@@ -341,8 +401,18 @@ Asumsi yang diambil selama perbaikan rilis (silakan koreksi bila tidak sesuai ke
     environment. Lokasi bisa diubah dengan `APP_ENV_FILE`; string kosong menonaktifkan pemuatan (dipakai di tes dan CI).
     `.dockerignore` mencegah `.env`, `*.db`, dan `uploads/` ikut masuk image Docker.
 14. **CI** (`.github/workflows/tests.yml`) menjalankan pytest di Python 3.11 dan 3.12 pada setiap pull request dan pada
-    push ke `main` (push ke branch lain tidak memicu job ganda),
+    push ke `main` (push ke branch lain tidak memicu job ganda). Job `docker` membangun image dari Dockerfile (tanpa push
+    ke registry), menjalankan `validate_config.py` (development lolos, production dengan kunci bawaan ditolak), mengimpor
+    semua modul, menjalankan pytest di dalam image tanpa jaringan, dan memeriksa `docker compose config`
+    (valid dengan kunci dummy, gagal jelas tanpa `APP_SECRET_KEY`),
     dengan cache pip dan tanpa rahasia apa pun.
+15. **Docker**: Dockerfile tidak lagi memasang `gcc` lewat apt karena semua dependensi tersedia sebagai wheel untuk
+    Python 3.11 (diverifikasi dengan `pip install --only-binary=:all:`). Saat container start, tabel basis data dibuat
+    (`init_db`) sebelum Streamlit berjalan, sehingga healthcheck langsung sehat (sebelumnya container "unhealthy" sampai
+    ada pengunjung pertama). Driver PostgreSQL `psycopg[binary]` ditambahkan (sebelumnya tidak ada, sehingga
+    `docker compose up` gagal saat menyambung ke Postgres); URL `postgres://` (Render) dan `postgresql://` dinormalkan ke
+    `postgresql+psycopg://` di `src/database.py`. Diverifikasi lokal: `docker compose up` dengan Postgres 16 → app dan db
+    healthy, `check_health.py` lulus, Streamlit merespons 200.
 
 ---
 

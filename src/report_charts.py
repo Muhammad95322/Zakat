@@ -109,9 +109,15 @@ def chart_peramalan_png(monthly_df: pd.DataFrame, forecast_df: pd.DataFrame,
     xf = list(range(n, n + len(fc_labels)))
     fig, ax = plt.subplots(figsize=(8, 3.4))
     ax.plot(range(n), monthly_df["total_dana"], color=WARNA_SERI_1, linewidth=2, label="Historis")
-    if label_selang and forecast_df[["batas_bawah", "batas_atas"]].notna().all().all():
-        ax.fill_between(xf, forecast_df["batas_bawah"], forecast_df["batas_atas"],
-                        color=WARNA_SERI_2, alpha=0.18, linewidth=0, label=label_selang)
+    ada = forecast_df[["batas_bawah", "batas_atas"]].notna().all(axis=1).to_numpy()
+    if label_selang and ada.any():
+        # Pita hanya untuk bulan yang punya selang; bulan tanpa selang tidak digambar
+        ax.fill_between(xf, forecast_df["batas_bawah"].to_numpy(dtype=float),
+                        forecast_df["batas_atas"].to_numpy(dtype=float), where=ada,
+                        color=WARNA_SERI_2, alpha=0.18, linewidth=0, label=label_selang, interpolate=False)
+        if not ada.all():
+            ax.text(0.99, 0.02, "Sebagian bulan tanpa selang (di luar cakupan backtest/galat kurang)",
+                    transform=ax.transAxes, ha="right", va="bottom", fontsize=6.5, color=TEKS_SEKUNDER)
     ax.plot([n - 1] + xf, [monthly_df["total_dana"].iloc[-1]] + forecast_df["proyeksi"].tolist(),
             color=WARNA_SERI_2, linewidth=2, linestyle="--", label="Proyeksi")
     _gaya(ax, "Proyeksi penghimpunan (Rp)")

@@ -126,15 +126,22 @@ def chart_forecasting(monthly_df: pd.DataFrame, forecast_df: pd.DataFrame,
             name="Historis Aktual"
         ))
         
-    ada_selang = (
-        not forecast_df.empty and bool(label_selang)
-        and forecast_df[["batas_bawah", "batas_atas"]].notna().all().all()
-    )
-    if ada_selang:
+    ada = (forecast_df[["batas_bawah", "batas_atas"]].notna().all(axis=1).to_numpy()
+           if not forecast_df.empty else np.array([], dtype=bool))
+    # Segmen bulan bersambung yang punya selang; bulan tanpa selang tidak diberi pita
+    segmen, mulai = [], None
+    for i, v in enumerate(ada):
+        if v and mulai is None:
+            mulai = i
+        if mulai is not None and (not v or i == len(ada) - 1):
+            segmen.append((mulai, i + 1 if v else i))
+            mulai = None
+    for nomor, (a, b) in enumerate(segmen if label_selang else []):
+        bagian = forecast_df.iloc[a:b]
         # Upper bound
         fig.add_trace(go.Scatter(
-            x=forecast_df["periode"],
-            y=forecast_df["batas_atas"],
+            x=bagian["periode"],
+            y=bagian["batas_atas"],
             mode="lines",
             line=dict(width=0),
             showlegend=False,
@@ -142,13 +149,15 @@ def chart_forecasting(monthly_df: pd.DataFrame, forecast_df: pd.DataFrame,
         ))
         # Lower bound + fill
         fig.add_trace(go.Scatter(
-            x=forecast_df["periode"],
-            y=forecast_df["batas_bawah"],
+            x=bagian["periode"],
+            y=bagian["batas_bawah"],
             mode="lines",
             line=dict(width=0),
             fill="tonexty",
             fillcolor="rgba(20, 184, 166, 0.2)",
-            name=label_selang
+            name=label_selang,
+            legendgroup="selang",
+            showlegend=nomor == 0,
         ))
     if not forecast_df.empty:
         # Proyeksi line

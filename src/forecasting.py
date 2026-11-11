@@ -38,7 +38,8 @@ MAKS_TITIK_AWAL = 12     # jumlah titik awal (terbaru) yang diuji
 MIN_TITIK_AWAL = 2       # minimal titik awal valid agar metode dianggap teruji
 BATAS_PORSI_GAGAL = 1 / 3  # gagal di lebih dari porsi ini -> "tidak andal"
 LEVEL_SELANG = 0.80        # selang proyeksi empiris dari galat backtest
-MIN_SAMPEL_SELANG = 10     # minimal galat backtest agar selang dihitung
+MIN_SAMPEL_SELANG = 6      # minimal galat backtest PER LANGKAH HORIZON agar selang langkah itu dihitung
+MAKS_HORIZON_SELANG = 12   # backtest selang menjangkau sampai 12 bulan ke depan (= horizon proyeksi bawaan)
 LABEL_SELANG = f"Selang {LEVEL_SELANG:.0%} (dari galat backtest)"
 _MIN_BULAN_DATA = 3
 # Alias kompatibilitas nama lama
@@ -54,6 +55,20 @@ class _ModelGagal(Exception):
 
 class _TidakMemenuhiSyarat(Exception):
     """Kandidat tidak dapat dipakai untuk data ini (alasan dijelaskan di pesan)."""
+
+
+def versi_lingkungan() -> Dict[str, str]:
+    """Versi Python dan pustaka numerik yang memengaruhi angka peramalan."""
+    import platform
+
+    versi = {"python": platform.python_version()}
+    for nama in ("numpy", "scipy", "pandas", "statsmodels"):
+        try:
+            modul = __import__(nama)
+            versi[nama] = str(getattr(modul, "__version__", "?"))
+        except Exception:
+            versi[nama] = "tidak dapat diimpor"
+    return versi
 
 
 def format_mape(meta: Optional[Dict[str, Any]]) -> str:
@@ -277,6 +292,9 @@ def _uji_kandidat(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex, titi
         "mape_per_jendela": {},
         "n_jendela": 0,
         "n_gagal": 0,
+        "n_dilewati": 0,
+        "titik_gagal": [],
+        "alasan_gagal": [],
         "status": "",
         "tersedia": False,
         "andal": True,
@@ -300,7 +318,6 @@ def _uji_kandidat(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex, titi
         )
         return baris
 
-    galat_relatif: List[float] = []
     alasan_gagal: List[str] = []
     for t in titik_valid:
         try:
@@ -311,6 +328,7 @@ def _uji_kandidat(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex, titi
             return baris
         except _ModelGagal as exc:
             baris["n_gagal"] += 1
+            baris["titik_gagal"].append(t)
             alasan_gagal.append(str(exc))
             continue
         except _TidakMemenuhiSyarat:
@@ -318,15 +336,14 @@ def _uji_kandidat(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex, titi
         aktual = y[t:t + h]
         mape = _hitung_mape(aktual, pred)
         if mape is None:
-            continue  # semua aktual 0: MAPE tak terdefinisi untuk jendela ini
+            baris["n_dilewati"] += 1
+            continue  # semua aktual 0: MAPE tak terdefinisi untuk jendela ini (bukan kegagalan)
         baris["mape_per_jendela"][t] = round(mape, 2)
-        mask = pred > 0
-        galat_relatif.extend(((aktual[mask] - pred[mask]) / pred[mask]).tolist())
 
     baris["titik_awal"] = sorted(baris["mape_per_jendela"])
     baris["n_jendela"] = len(baris["titik_awal"])
-    baris["_galat_relatif"] = galat_relatif
     baris["_alasan_gagal"] = alasan_gagal
+    baris["alasan_gagal"] = list(dict.fromkeys(alasan_gagal))[:3]  # alasan unik (maks 3)
     baris.update(_ringkas(list(baris["mape_per_jendela"].values())))
     n_coba = baris["n_jendela"] + baris["n_gagal"]
     if baris["n_gagal"] and baris["n_gagal"] > BATAS_PORSI_GAGAL * n_coba:
@@ -385,9 +402,12 @@ def _hasil_kosong(n: int) -> Tuple[pd.DataFrame, Dict[str, Any]]:
         "peringatan_keandalan": None,
         "catatan_stabilitas": None,
         "jendela_bersama": [],
+        "jendela_dikeluarkan": {},
+        "lingkungan": versi_lingkungan(),
         "selang_tersedia": False,
         "selang_label": None,
         "selang_keterangan": "Selang tidak tersedia: tidak ada peramalan.",
+        "selang_per_bulan": [],
         "perbandingan": [],
         "dasar_pemilihan": "Tidak ada peramalan.",
         "n_bulan": n,
@@ -416,6 +436,70 @@ def hitung_selang(proyeksi: np.ndarray, galat_relatif: List[float]) -> Tuple[np.
     bawah = np.maximum(proyeksi * (1 + q_bawah), 0)
     atas = np.maximum(proyeksi * (1 + q_atas), bawah)
     return bawah, atas
+
+
+def _rentang(angka: List[int]) -> str:
+    """[1,2,3,5,7,8] -> '1-3, 5, 7-8'."""
+    bagian, mulai = [], None
+    for i, a in enumerate(angka):
+        if mulai is None:
+            mulai = a
+        if i == len(angka) - 1 or angka[i + 1] != a + 1:
+            bagian.append(f"{mulai}" if mulai == a else f"{mulai}-{a}")
+            mulai = None
+    return ", ".join(bagian)
+
+
+def galat_per_horizon(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex,
+                      maks_h: int) -> Dict[int, List[float]]:
+    """Galat relatif backtest metode ``kandidat`` untuk tiap langkah horizon h = 1..maks_h.
+
+    Untuk langkah h dipakai sampai MAKS_TITIK_AWAL titik awal TERBARU t yang
+    mencapai bulan itu (t + h <= n) dan memenuhi syarat data latih metode. Model
+    hanya dilatih pada y[:t]. Galat relatif = (aktual - prediksi) / prediksi
+    (prediksi 0 dilewati). Langkah tanpa titik awal yang mencapainya -> list kosong.
+    """
+    n = len(y)
+    paling_awal = max(kandidat.min_latih, n - (MAKS_TITIK_AWAL + maks_h - 1))
+    per_h: Dict[int, List[Tuple[int, float]]] = {hh: [] for hh in range(1, maks_h + 1)}
+    for t in range(paling_awal, n):
+        langkah = min(maks_h, n - t)
+        try:
+            pred = _prediksi_backtest(kandidat, y, tgl, t, langkah)
+        except (ImportError, _ModelGagal, _TidakMemenuhiSyarat):
+            continue
+        for hh in range(1, langkah + 1):
+            p = pred[hh - 1]
+            if p > 0:
+                per_h[hh].append((t, float((y[t + hh - 1] - p) / p)))
+    return {hh: [g for _, g in sorted(v)[-MAKS_TITIK_AWAL:]] for hh, v in per_h.items()}
+
+
+def selang_per_horizon(proyeksi: np.ndarray, galat: Dict[int, List[float]]) -> Tuple[
+        np.ndarray, np.ndarray, List[Dict[str, Any]]]:
+    """Selang per bulan proyeksi dari sebaran galat langkah horizon yang sesuai.
+
+    Bulan ke-i memakai galat langkah h = i. Status per bulan: 'tersedia',
+    'tidak tersedia' (galat < MIN_SAMPEL_SELANG), atau 'di luar cakupan backtest'
+    (tidak ada titik awal yang mencapai langkah itu). Tidak ada ekstrapolasi.
+    """
+    m = len(proyeksi)
+    bawah = np.full(m, np.nan)
+    atas = np.full(m, np.nan)
+    rincian: List[Dict[str, Any]] = []
+    for i in range(m):
+        hh = i + 1
+        g = galat.get(hh, [])
+        if not g:
+            status = "di luar cakupan backtest"
+        elif len(g) < MIN_SAMPEL_SELANG:
+            status = f"tidak tersedia: hanya {len(g)} galat (butuh {MIN_SAMPEL_SELANG})"
+        else:
+            b, a = hitung_selang(np.array([proyeksi[i]]), g)
+            bawah[i], atas[i] = b[0], a[0]
+            status = "tersedia"
+        rincian.append({"langkah": hh, "n_galat": len(g), "status": status})
+    return bawah, atas, rincian
 
 
 def _urutan(kode: str) -> int:
@@ -448,6 +532,54 @@ def urutkan_kandidat(tersedia: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any
     kunci = (lambda b: (b["mape_bersama"], _urutan(b["kode"]))) if bersama else (
         lambda b: (b["mape"], _urutan(b["kode"])))
     return sorted(tersedia, key=kunci), bersama
+
+
+def jendela_dikeluarkan_karena_gagal(tersedia: List[Dict[str, Any]], bersama: List[int]) -> Dict[int, List[str]]:
+    """Titik awal yang keluar dari jendela bersama karena metode andal GAGAL di sana.
+
+    Aturan (sama untuk semua metode): jendela bersama = titik awal tempat SEMUA
+    metode andal berhasil dinilai. Bila satu metode gagal di titik awal t, t
+    dikeluarkan dari jendela bersama untuk SEMUA metode (dasar peringkat), tetapi
+    rata-rata MAPE yang ditampilkan per metode tetap memakai seluruh jendela yang
+    berhasil ia nilai.
+    """
+    hasil: Dict[int, List[str]] = {}
+    for b in tersedia:
+        for t in b.get("titik_gagal", []):
+            if t not in bersama:
+                hasil.setdefault(t, []).append(b["metode"])
+    return dict(sorted(hasil.items()))
+
+
+def ringkasan_catatan_metode(meta: Optional[Dict[str, Any]]) -> str:
+    """Satu paragraf singkat: versi pustaka dan kegagalan konvergensi per metode."""
+    meta = meta or {}
+    v = meta.get("lingkungan") or {}
+    bagian = []
+    if v:
+        bagian.append(
+            f"Dihitung dengan Python {v.get('python')}, statsmodels {v.get('statsmodels')}, "
+            f"numpy {v.get('numpy')}, scipy {v.get('scipy')}, pandas {v.get('pandas')}."
+        )
+    for b in meta.get("perbandingan") or []:
+        if b.get("n_gagal"):
+            coba = b["n_jendela"] + b["n_gagal"]
+            alasan = f" ({b['alasan_gagal'][0]})" if b.get("alasan_gagal") else ""
+            bagian.append(
+                f"{b['metode']}: {b['n_jendela']} dari {coba} titik awal dinilai, "
+                f"{b['n_gagal']} gagal{alasan}."
+            )
+        elif b["status"].startswith("tidak tersedia"):
+            bagian.append(f"{b['metode']} {b['status']}.")
+    keluar = meta.get("jendela_dikeluarkan") or {}
+    if keluar:
+        bagian.append(
+            "Titik awal (bulan latih) yang dikeluarkan dari jendela bersama untuk semua metode karena ada metode "
+            "yang gagal: " + "; ".join(f"{t} ({', '.join(m)})" for t, m in keluar.items()) + "."
+        )
+    if not any(b.get("n_gagal") for b in meta.get("perbandingan") or []) and meta.get("perbandingan"):
+        bagian.append("Tidak ada kegagalan konvergensi pada backtest.")
+    return " ".join(bagian)
 
 
 def cek_stabilitas(pertama: Dict[str, Any], kedua: Dict[str, Any],
@@ -515,6 +647,7 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
 
     perbandingan, h = bandingkan_metode(y, tgl, tgl_depan)
     tersedia, jendela_bersama = urutkan_kandidat([b for b in perbandingan if b["tersedia"]])
+    jendela_keluar = jendela_dikeluarkan_karena_gagal(tersedia, jendela_bersama) if jendela_bersama else {}
     gangguan = [b for b in perbandingan if b.get("gangguan")]
 
     catatan: List[str] = []
@@ -552,6 +685,11 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
             f"(bulan latih {terpilih['titik_awal'][0]}-{terpilih['titik_awal'][-1]}), "
             f"masing-masing memprediksi {h} bulan ke depan."
         )
+        if terpilih["n_gagal"]:
+            mape_ket += (
+                f" {terpilih['n_gagal']} titik awal lain gagal dilatih dan tidak ikut dihitung "
+                f"({terpilih['n_jendela']} dinilai dari {terpilih['n_jendela'] + terpilih['n_gagal']} dicoba)."
+            )
         lain = [b for b in tersedia if b is not terpilih]
         if jendela_bersama:
             dasar = (
@@ -563,8 +701,13 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
                 dasar += "; pembanding: " + ", ".join(f"{b['metode']} {b['mape_bersama']:.2f}%" for b in lain)
             dasar += (
                 f". MAPE yang ditampilkan ({mape:.2f}%) adalah rata-rata seluruh {terpilih['n_jendela']} "
-                f"jendela metode terpilih."
+                f"jendela yang dinilai untuk metode terpilih."
             )
+            if jendela_keluar:
+                dasar += (
+                    " Titik awal " + ", ".join(str(t) for t in jendela_keluar)
+                    + " dikeluarkan dari jendela bersama untuk semua metode karena ada metode yang gagal di sana."
+                )
         else:
             dasar = (
                 f"Dipilih karena rata-rata MAPE backtest bergulir terkecil ({mape:.2f}%) "
@@ -608,27 +751,39 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
         catatan.append("PERINGATAN: " + peringatan_keandalan)
 
     forecast_vals = np.maximum(np.asarray(pred, dtype=float), 0)
-    galat = (terpilih or {}).get("_galat_relatif") or []
     if terpilih is None:
-        selang_ket = "Selang tidak tersedia: backtest tidak dapat dilakukan sehingga galat proyeksi belum terukur."
-    elif len(galat) < MIN_SAMPEL_SELANG:
-        selang_ket = (
-            f"Selang tidak tersedia: hanya {len(galat)} galat backtest (butuh minimal {MIN_SAMPEL_SELANG})."
-        )
-    else:
-        selang_ket = None
-    if selang_ket is None:
-        lower_vals, upper_vals = hitung_selang(forecast_vals, galat)
-        selang_ket = (
-            f"{LABEL_SELANG}: kuantil {(1 - LEVEL_SELANG) / 2:.0%} dan {1 - (1 - LEVEL_SELANG) / 2:.0%} dari "
-            f"{len(galat)} galat relatif backtest bergulir metode terpilih (semua titik awal, horizon 1-{h} bulan). "
-            f"Untuk bulan proyeksi ke-{h + 1} dan seterusnya dipakai sebaran yang sama, sehingga selang di sana "
-            "kemungkinan terlalu sempit."
-        )
-        selang_tersedia = True
-    else:
         lower_vals = upper_vals = np.full(len(forecast_vals), np.nan)
-        selang_tersedia = False
+        rincian_selang = [{"langkah": i + 1, "n_galat": 0, "status": "di luar cakupan backtest"}
+                          for i in range(len(forecast_vals))]
+        selang_ket = "Selang tidak tersedia: backtest tidak dapat dilakukan sehingga galat proyeksi belum terukur."
+    else:
+        galat_h = galat_per_horizon(_METODE[kode], y, tgl, min(periods, MAKS_HORIZON_SELANG))
+        lower_vals, upper_vals, rincian_selang = selang_per_horizon(forecast_vals, galat_h)
+        ada = [r["langkah"] for r in rincian_selang if r["status"] == "tersedia"]
+        luar = [r["langkah"] for r in rincian_selang if r["status"] == "di luar cakupan backtest"]
+        kurang = [r["langkah"] for r in rincian_selang if r["status"].startswith("tidak tersedia")]
+        alfa = (1 - LEVEL_SELANG) / 2
+        if ada:
+            selang_ket = (
+                f"{LABEL_SELANG}: untuk tiap bulan proyeksi ke-h dipakai kuantil {alfa:.0%} dan {1 - alfa:.0%} "
+                f"galat relatif backtest bergulir metode terpilih pada langkah horizon h yang sama "
+                f"(maks {MAKS_TITIK_AWAL} titik awal terbaru per langkah). Selang tersedia untuk bulan ke-"
+                f"{_rentang(ada)}."
+            )
+        else:
+            selang_ket = "Selang tidak tersedia untuk semua bulan proyeksi."
+        if kurang:
+            selang_ket += (
+                f" Bulan ke-{_rentang(kurang)}: selang tidak tersedia karena galat backtest kurang dari "
+                f"{MIN_SAMPEL_SELANG} per langkah."
+            )
+        if luar:
+            selang_ket += (
+                f" Bulan ke-{_rentang(luar)}: di luar cakupan backtest (data belum cukup untuk menguji "
+                "proyeksi sejauh itu), sehingga tanpa selang."
+            )
+    selang_tersedia = bool(np.isfinite(lower_vals).any())
+    if not selang_tersedia or np.isnan(lower_vals).any():
         catatan.append(selang_ket)
 
     df_forecast = pd.DataFrame({
@@ -636,6 +791,7 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
         "proyeksi": forecast_vals,
         "batas_bawah": lower_vals,
         "batas_atas": upper_vals,
+        "status_selang": [r["status"] for r in rincian_selang],
     })
 
     for b in perbandingan:
@@ -662,9 +818,12 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
         "peringatan_keandalan": peringatan_keandalan,
         "catatan_stabilitas": catatan_stabilitas,
         "jendela_bersama": jendela_bersama,
+        "jendela_dikeluarkan": jendela_keluar,
+        "lingkungan": versi_lingkungan(),
         "selang_tersedia": selang_tersedia,
         "selang_label": LABEL_SELANG if selang_tersedia else None,
         "selang_keterangan": selang_ket,
+        "selang_per_bulan": rincian_selang,
         "perbandingan": perbandingan,
         "dasar_pemilihan": dasar,
         "n_bulan": n,
@@ -704,9 +863,8 @@ def tabel_perbandingan(meta: Optional[Dict[str, Any]], lengkap: bool = False,
             r["Rata-rata (jendela bersama)"] = fmt(b.get("mape_bersama"))
         if lengkap:
             r["SD"] = b["mape_std"] if numerik else ("-" if b["mape_std"] is None else f"{b['mape_std']:.2f}")
-        r["Jendela"] = b["n_jendela"]
-        if lengkap:
-            r["Gagal"] = b["n_gagal"]
+        r["Jendela dinilai"] = b["n_jendela"]
+        r["Gagal"] = b["n_gagal"]
         r["Status"] = status(b)
         hasil.append(r)
     return pd.DataFrame(hasil)

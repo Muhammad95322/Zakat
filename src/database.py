@@ -10,18 +10,34 @@ from src.config import settings
 # ---------------------------------------------------------------------------
 # Engine
 # ---------------------------------------------------------------------------
+def normalisasi_url_db(url: str) -> str:
+    """Pastikan URL PostgreSQL memakai driver psycopg (v3) yang ada di requirements.
+
+    - 'postgres://' (format Render/Heroku) tidak dikenal SQLAlchemy -> diganti.
+    - 'postgresql://' tanpa driver: SQLAlchemy 2.0 memilih psycopg2, 2.1 memilih
+      psycopg; dibuat eksplisit agar sama di semua versi.
+    URL lain (SQLite, atau yang sudah menyebut driver) tidak diubah.
+    """
+    for awalan in ("postgres://", "postgresql://"):
+        if url.startswith(awalan):
+            return "postgresql+psycopg://" + url[len(awalan):]
+    return url
+
+
+DATABASE_URL = normalisasi_url_db(settings.DATABASE_URL)
+
 _connect_args = {}
-if settings.DATABASE_URL.startswith("sqlite"):
+if DATABASE_URL.startswith("sqlite"):
     _connect_args = {"check_same_thread": False}
 
 engine = create_engine(
-    settings.DATABASE_URL,
+    DATABASE_URL,
     connect_args=_connect_args,
     echo=settings.APP_ENV == "development",
 )
 
 # Enable WAL mode for SQLite to improve concurrency
-if settings.DATABASE_URL.startswith("sqlite"):
+if DATABASE_URL.startswith("sqlite"):
     @event.listens_for(engine, "connect")
     def set_sqlite_pragma(dbapi_conn, connection_record):
         cursor = dbapi_conn.cursor()

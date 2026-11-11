@@ -17,7 +17,7 @@ from src.analysis import (
     get_distribution_analysis, get_statistical_tests
 )
 from src.rfm import segment_rfm
-from src.forecasting import forecast_donations, format_mape_lengkap, tabel_perbandingan
+from src.forecasting import forecast_donations, format_mape_lengkap, ringkasan_catatan_metode, tabel_perbandingan
 from src.charts import (
     chart_trend_bulanan, chart_komposisi_donut, chart_bar_wilayah,
     chart_lorenz, chart_forecasting
@@ -246,6 +246,7 @@ def show():
         if not tabel_metode.empty:
             with st.expander("📊 Perbandingan MAPE backtest bergulir semua metode", expanded=True):
                 st.dataframe(tabel_metode, use_container_width=True, hide_index=True)
+                st.caption(f"Catatan metode: {ringkasan_catatan_metode(forecast_meta)}")
         # Catatan umum = bagian awal warning sebelum PERINGATAN/CATATAN (sudah ditampilkan terpisah)
         catatan_umum = re.split(r"(?:PERINGATAN|CATATAN): ", forecast_meta.get("warning", ""))[0].strip()
         if catatan_umum:
@@ -258,7 +259,8 @@ def show():
                 st.caption(forecast_meta["selang_keterangan"])
             st.dataframe(forecast_df.rename(columns={
                 "periode": "Bulan", "proyeksi": "Proyeksi Donasi (Rp)",
-                "batas_bawah": "Batas Bawah (Rp)", "batas_atas": "Batas Atas (Rp)"
+                "batas_bawah": "Batas Bawah (Rp)", "batas_atas": "Batas Atas (Rp)",
+                "status_selang": "Status Selang"
             }), use_container_width=True)
 
     # TAB 7: Laporan & Ekspor

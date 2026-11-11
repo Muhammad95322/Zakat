@@ -1,6 +1,10 @@
 """Fixtures pengujian pytest untuk basis data in-memory dan mock data."""
+import os
 import sys
 import uuid
+
+# Jangan biarkan file .env milik pengembang memengaruhi tes (juga subprocess).
+os.environ["APP_ENV_FILE"] = ""
 import pytest
 from pathlib import Path
 from sqlalchemy import create_engine

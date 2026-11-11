@@ -1,0 +1,10 @@
+# Jangan ikut sertakan rahasia, basis data lokal, atau unggahan ke image Docker
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite3
+uploads/
+.git
+__pycache__/
+.pytest_cache/

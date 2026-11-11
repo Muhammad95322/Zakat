@@ -1,7 +1,7 @@
 """Model Tenant (Lembaga Zakat)."""
 import re
 import uuid
-from datetime import datetime
+from src.waktu import utc_now
 
 from sqlalchemy import Boolean, Column, Date, DateTime, Enum, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -56,8 +56,8 @@ class Tenant(Base):
     paket_mulai = Column(Date)
     paket_berakhir = Column(Date)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # Relationships
     users = relationship("User", back_populates="tenant", cascade="all, delete-orphan")

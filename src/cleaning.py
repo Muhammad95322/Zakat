@@ -149,7 +149,12 @@ def clean_data(df: pd.DataFrame, sheet_type: str = "Penghimpunan") -> Tuple[pd.D
         df_clean["kanal"] = df_clean["kanal"].apply(_clean_kanal)
 
     # 6. Tangani missing string
-    str_cols = df_clean.select_dtypes(include=["object"]).columns
+    # Kolom teks: dtype object (pandas 2) atau str/string (pandas 3) -- dipilih
+    # eksplisit agar tidak memicu peringatan deprecation select_dtypes("object").
+    str_cols = [
+        c for c in df_clean.columns
+        if pd.api.types.is_object_dtype(df_clean[c]) or pd.api.types.is_string_dtype(df_clean[c])
+    ]
     for c in str_cols:
         df_clean[c] = df_clean[c].fillna("Tidak Diketahui").astype(str).str.strip()
         df_clean.loc[df_clean[c] == "", c] = "Tidak Diketahui"

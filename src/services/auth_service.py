@@ -1,7 +1,8 @@
 """Layanan autentikasi, registrasi, dan sesi pengguna."""
 import uuid
 import secrets
-from datetime import datetime, timedelta
+from datetime import timedelta
+from src.waktu import utc_now
 from typing import Optional, Tuple
 from sqlalchemy.orm import Session
 
@@ -74,7 +75,7 @@ def register_lembaga(
         user_id=admin_user.id,
         jenis="verifikasi_email",
         token_hash=raw_token,
-        expires_at=datetime.utcnow() + timedelta(hours=24)
+        expires_at=utc_now() + timedelta(hours=24)
     )
     db.add(token_obj)
     db.commit()
@@ -102,7 +103,7 @@ def login(
     if not user:
         return None
         
-    now = datetime.utcnow()
+    now = utc_now()
     
     # Cek lockout
     if user.locked_until and user.locked_until > now:
@@ -165,7 +166,7 @@ def verifikasi_email(db: Session, token_str: str) -> bool:
         return False
         
     user.is_verified = True
-    token_obj.used_at = datetime.utcnow()
+    token_obj.used_at = utc_now()
     db.commit()
     
     catat_log(db, user.id, "email_verified", tenant_id=user.tenant_id)
@@ -185,7 +186,7 @@ def request_reset_password(db: Session, email: str) -> bool:
         user_id=user.id,
         jenis="reset_password",
         token_hash=raw_token,
-        expires_at=datetime.utcnow() + timedelta(hours=1)
+        expires_at=utc_now() + timedelta(hours=1)
     )
     db.add(token_obj)
     db.commit()
@@ -220,7 +221,7 @@ def reset_password(db: Session, token_str: str, new_password: str) -> bool:
     user.password_hash = hash_password(new_password)
     user.failed_login_count = 0
     user.locked_until = None
-    token_obj.used_at = datetime.utcnow()
+    token_obj.used_at = utc_now()
     db.commit()
     
     catat_log(db, user.id, "reset_password_success", tenant_id=user.tenant_id)
@@ -235,7 +236,7 @@ def logout(db: Session, user_id: str, refresh_token: Optional[str] = None) -> No
             Token.token_hash == refresh_token
         ).first()
         if token_obj:
-            token_obj.used_at = datetime.utcnow()
+            token_obj.used_at = utc_now()
             db.commit()
     catat_log(db, user_id, "logout")
 

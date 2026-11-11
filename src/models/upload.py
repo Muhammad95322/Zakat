@@ -1,6 +1,6 @@
 """Model Upload File."""
 import uuid
-from datetime import datetime
+from src.waktu import utc_now
 
 from sqlalchemy import BigInteger, Column, Date, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
@@ -48,7 +48,7 @@ class Upload(Base):
     jumlah_baris_penghimpunan = Column(Integer)
     jumlah_baris_penyaluran = Column(Integer)
     storage_path = Column(String(500))
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
 
     # Relationships
     tenant = relationship("Tenant", back_populates="uploads")

@@ -664,3 +664,32 @@ class TestVersiLingkungan:
         _, meta = forecast_donations(_bulanan(36))
         assert meta["lingkungan"]["statsmodels"] == "tidak dapat diimpor"
         assert "statsmodels tidak dapat diimpor" in fc.ringkasan_catatan_metode(meta)
+
+
+class TestBiasPerHorizon:
+    def test_ringkas_bias_manual(self):
+        hasil = fc.ringkas_bias({1: [1.0, 1.2, 1.4], 2: [0.8, 0.9, 1.0], 3: [1.0, 1.02, 0.98], 4: []})
+        b1, b2, b3, b4 = hasil
+        assert b1["median_rasio"] == 1.2 and b1["arah"] == "meremehkan" and b1["n_rasio"] == 3
+        assert b1["q10_rasio"] == pytest.approx(1.04) and b1["q90_rasio"] == pytest.approx(1.36)
+        assert b2["median_rasio"] == 0.9 and b2["arah"] == "melebihkan"
+        assert b3["arah"] == "tidak bias berarti"
+        assert b4["n_rasio"] == 0 and b4["median_rasio"] is None
+
+    def test_rasio_rinci_manual(self):
+        # data konstan 100, kandidat palsu meramal 80 di semua langkah -> rasio 1.25 di semua titik awal
+        asli = fc._METODE["rata_bergerak"]
+        palsu = fc.Kandidat(asli.kode, asli.label, lambda y, t, d: (np.full(len(d), 80.0), y * 0), 3)
+        y = np.full(20, 100.0)
+        tgl = pd.date_range("2022-01-01", periods=20, freq="MS")
+        rinci = fc.rasio_per_horizon_rinci(palsu, y, tgl, 4)
+        assert [t for t, _ in rinci[1]] == list(range(3, 20))          # semua titik awal t >= 3 dengan t + 1 <= 20
+        assert [t for t, _ in rinci[4]] == list(range(3, 17))          # t + 4 <= 20
+        assert all(r == pytest.approx(1.25) for v in rinci.values() for _, r in v)
+        assert fc.terbaru(rinci, 2)[4] == [1.25, 1.25]
+
+    def test_bias_di_meta(self):
+        _, meta = forecast_donations(_bulanan(36))
+        bias = meta["bias_per_horizon"]
+        assert [b["langkah"] for b in bias] == list(range(1, 13))
+        assert all(b["n_rasio"] <= fc.MAKS_TITIK_AWAL for b in bias)

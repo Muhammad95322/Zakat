@@ -41,6 +41,8 @@ LEVEL_SELANG = 0.80        # selang proyeksi empiris dari galat backtest
 MIN_SAMPEL_SELANG = 6      # minimal galat backtest PER LANGKAH HORIZON agar selang langkah itu dihitung
 MAKS_HORIZON_SELANG = 12   # backtest selang menjangkau sampai 12 bulan ke depan (= horizon proyeksi bawaan)
 LABEL_SELANG = f"Selang {LEVEL_SELANG:.0%} (dari galat backtest)"
+MAKS_TITIK_AWAL_RINCI = 36  # titik awal per langkah untuk uji bertingkat koreksi bias (lebih panjang dari 12)
+AMBANG_ARAH_BIAS = 0.05     # |median rasio - 1| < 5% dianggap tidak bias berarti
 _MIN_BULAN_DATA = 3
 # Alias kompatibilitas nama lama
 _MAKS_BULAN_UJI = HORIZON_UJI
@@ -408,6 +410,7 @@ def _hasil_kosong(n: int) -> Tuple[pd.DataFrame, Dict[str, Any]]:
         "selang_label": None,
         "selang_keterangan": "Selang tidak tersedia: tidak ada peramalan.",
         "selang_per_bulan": [],
+        "bias_per_horizon": [],
         "perbandingan": [],
         "dasar_pemilihan": "Tidak ada peramalan.",
         "n_bulan": n,
@@ -450,17 +453,16 @@ def _rentang(angka: List[int]) -> str:
     return ", ".join(bagian)
 
 
-def galat_per_horizon(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex,
-                      maks_h: int) -> Dict[int, List[float]]:
-    """Galat relatif backtest metode ``kandidat`` untuk tiap langkah horizon h = 1..maks_h.
+def rasio_per_horizon_rinci(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex, maks_h: int,
+                            maks_titik: int = MAKS_TITIK_AWAL_RINCI) -> Dict[int, List[Tuple[int, float]]]:
+    """Rasio aktual/prediksi backtest metode ``kandidat`` per langkah horizon h = 1..maks_h.
 
-    Untuk langkah h dipakai sampai MAKS_TITIK_AWAL titik awal TERBARU t yang
-    mencapai bulan itu (t + h <= n) dan memenuhi syarat data latih metode. Model
-    hanya dilatih pada y[:t]. Galat relatif = (aktual - prediksi) / prediksi
-    (prediksi 0 dilewati). Langkah tanpa titik awal yang mencapainya -> list kosong.
+    Untuk langkah h dipakai sampai ``maks_titik`` titik awal TERBARU t yang mencapai
+    bulan itu (t + h <= n) dan memenuhi syarat data latih metode. Model hanya dilatih
+    pada y[:t]. Prediksi <= 0 dilewati. Hasil: {h: [(t, rasio), ...]} terurut menurut t.
     """
     n = len(y)
-    paling_awal = max(kandidat.min_latih, n - (MAKS_TITIK_AWAL + maks_h - 1))
+    paling_awal = max(kandidat.min_latih, n - (maks_titik + maks_h - 1))
     per_h: Dict[int, List[Tuple[int, float]]] = {hh: [] for hh in range(1, maks_h + 1)}
     for t in range(paling_awal, n):
         langkah = min(maks_h, n - t)
@@ -471,8 +473,49 @@ def galat_per_horizon(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex,
         for hh in range(1, langkah + 1):
             p = pred[hh - 1]
             if p > 0:
-                per_h[hh].append((t, float((y[t + hh - 1] - p) / p)))
-    return {hh: [g for _, g in sorted(v)[-MAKS_TITIK_AWAL:]] for hh, v in per_h.items()}
+                per_h[hh].append((t, float(y[t + hh - 1] / p)))
+    return {hh: sorted(v)[-maks_titik:] for hh, v in per_h.items()}
+
+
+def terbaru(rinci: Dict[int, List[Tuple[int, float]]], k: int = MAKS_TITIK_AWAL) -> Dict[int, List[float]]:
+    """Ambil k rasio dari titik awal terbaru per langkah horizon."""
+    return {hh: [r for _, r in v[-k:]] for hh, v in rinci.items()}
+
+
+def galat_per_horizon(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex,
+                      maks_h: int) -> Dict[int, List[float]]:
+    """Galat relatif (aktual - prediksi) / prediksi = rasio - 1, maks MAKS_TITIK_AWAL titik awal
+    terbaru per langkah horizon (dipakai untuk selang)."""
+    rinci = rasio_per_horizon_rinci(kandidat, y, tgl, maks_h, MAKS_TITIK_AWAL)
+    return {hh: [r - 1 for r in v] for hh, v in terbaru(rinci).items()}
+
+
+def ringkas_bias(rasio: Dict[int, List[float]]) -> List[Dict[str, Any]]:
+    """Ringkasan bias per langkah horizon dari rasio aktual/prediksi backtest.
+
+    median > 1 berarti metode MEREMEHKAN (aktual lebih besar dari prediksi),
+    median < 1 berarti MELEBIHKAN. |median - 1| < AMBANG_ARAH_BIAS: tidak bias berarti.
+    """
+    hasil = []
+    for hh in sorted(rasio):
+        r = np.asarray(rasio[hh], dtype=float)
+        if len(r) == 0:
+            hasil.append({"langkah": hh, "n_rasio": 0, "median_rasio": None, "q10_rasio": None,
+                          "q90_rasio": None, "arah": "tidak ada data"})
+            continue
+        med = float(np.median(r))
+        if med > 1 + AMBANG_ARAH_BIAS:
+            arah = "meremehkan"
+        elif med < 1 - AMBANG_ARAH_BIAS:
+            arah = "melebihkan"
+        else:
+            arah = "tidak bias berarti"
+        hasil.append({
+            "langkah": hh, "n_rasio": int(len(r)), "median_rasio": round(med, 4),
+            "q10_rasio": round(float(np.quantile(r, 0.1)), 4), "q90_rasio": round(float(np.quantile(r, 0.9)), 4),
+            "arah": arah,
+        })
+    return hasil
 
 
 def selang_per_horizon(proyeksi: np.ndarray, galat: Dict[int, List[float]]) -> Tuple[
@@ -751,13 +794,17 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
         catatan.append("PERINGATAN: " + peringatan_keandalan)
 
     forecast_vals = np.maximum(np.asarray(pred, dtype=float), 0)
+    bias_per_horizon: List[Dict[str, Any]] = []
     if terpilih is None:
         lower_vals = upper_vals = np.full(len(forecast_vals), np.nan)
         rincian_selang = [{"langkah": i + 1, "n_galat": 0, "status": "di luar cakupan backtest"}
                           for i in range(len(forecast_vals))]
         selang_ket = "Selang tidak tersedia: backtest tidak dapat dilakukan sehingga galat proyeksi belum terukur."
     else:
-        galat_h = galat_per_horizon(_METODE[kode], y, tgl, min(periods, MAKS_HORIZON_SELANG))
+        rinci = rasio_per_horizon_rinci(_METODE[kode], y, tgl, min(periods, MAKS_HORIZON_SELANG))
+        rasio_terbaru = terbaru(rinci)
+        bias_per_horizon = ringkas_bias(rasio_terbaru)
+        galat_h = {hh: [r - 1 for r in v] for hh, v in rasio_terbaru.items()}
         lower_vals, upper_vals, rincian_selang = selang_per_horizon(forecast_vals, galat_h)
         ada = [r["langkah"] for r in rincian_selang if r["status"] == "tersedia"]
         luar = [r["langkah"] for r in rincian_selang if r["status"] == "di luar cakupan backtest"]
@@ -824,6 +871,7 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
         "selang_label": LABEL_SELANG if selang_tersedia else None,
         "selang_keterangan": selang_ket,
         "selang_per_bulan": rincian_selang,
+        "bias_per_horizon": bias_per_horizon,
         "perbandingan": perbandingan,
         "dasar_pemilihan": dasar,
         "n_bulan": n,

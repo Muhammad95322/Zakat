@@ -46,6 +46,14 @@ def main() -> int:
               "dasar peringkat)")
     print(f"\nMetode terpilih: {meta['metode']} | rata-rata MAPE: {format_mape_lengkap(meta)}")
     print("Catatan metode:", ringkasan_catatan_metode(meta))
+    bias = meta.get("bias_per_horizon") or []
+    if bias:
+        print(f"\nBias metode terpilih per langkah horizon (rasio aktual/prediksi backtest; >1 = meremehkan):")
+        print(f"{'h':>3s} {'n':>3s} {'median':>8s} {'q10':>7s} {'q90':>7s}  arah")
+        for b in bias:
+            f = lambda v: "-" if v is None else f"{v:.3f}"
+            print(f"{b['langkah']:>3} {b['n_rasio']:>3} {f(b['median_rasio']):>8s} {f(b['q10_rasio']):>7s} "
+                  f"{f(b['q90_rasio']):>7s}  {b['arah']}")
     for kunci in ("catatan_stabilitas", "peringatan_keandalan", "fallback_alasan", "selang_keterangan"):
         if meta.get(kunci):
             print(f"{kunci}: {meta[kunci]}")

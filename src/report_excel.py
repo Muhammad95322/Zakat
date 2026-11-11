@@ -1,6 +1,8 @@
 """Generator ekspor laporan Excel rapi multi-sheet."""
 import io
 import pandas as pd
+
+from src.ekspor_aman import netralkan_df
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
@@ -17,7 +19,7 @@ def generate_excel_report(
     
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         # Sheet 1: Data Bersih
-        df_clean.to_excel(writer, sheet_name="Data Bersih", index=False)
+        netralkan_df(df_clean).to_excel(writer, sheet_name="Data Bersih", index=False)
         
         # Sheet 2: Ringkasan KPI
         kpi_rows = [
@@ -28,15 +30,15 @@ def generate_excel_report(
             {"Metrik": "Median Donasi", "Nilai": summary_stats.get("median", 0)},
             {"Metrik": "Donasi Terbesar", "Nilai": summary_stats.get("terbesar", 0)},
         ]
-        pd.DataFrame(kpi_rows).to_excel(writer, sheet_name="Ringkasan KPI", index=False)
+        netralkan_df(pd.DataFrame(kpi_rows)).to_excel(writer, sheet_name="Ringkasan KPI", index=False)
         
         # Sheet 3: Segmentasi RFM (jika ada)
         if rfm_df is not None and not rfm_df.empty:
-            rfm_df.to_excel(writer, sheet_name="Segmentasi RFM", index=False)
+            netralkan_df(rfm_df).to_excel(writer, sheet_name="Segmentasi RFM", index=False)
             
         # Sheet 4: Proyeksi Peramalan (jika ada)
         if forecast_df is not None and not forecast_df.empty:
-            forecast_df.to_excel(writer, sheet_name="Proyeksi Dana", index=False)
+            netralkan_df(forecast_df).to_excel(writer, sheet_name="Proyeksi Dana", index=False)
             
         # Sheet 4b: Perbandingan metode peramalan (jika ada)
         if forecast_meta and forecast_meta.get("perbandingan"):
@@ -46,7 +48,7 @@ def generate_excel_report(
                 "Terburuk": "MAPE Terburuk (%)", "SD": "SD MAPE (poin)",
                 "Rata-rata (jendela bersama)": "Rata-rata MAPE jendela bersama (%)",
             })
-            tabel.to_excel(writer, sheet_name="Perbandingan Metode", index=False)
+            netralkan_df(tabel).to_excel(writer, sheet_name="Perbandingan Metode", index=False)
             ringkas = pd.DataFrame([
                 {"Butir": "Metode terpilih", "Nilai": forecast_meta.get("metode")},
                 {"Butir": "Rata-rata MAPE backtest bergulir (%)", "Nilai": forecast_meta.get("mape")},
@@ -62,11 +64,11 @@ def generate_excel_report(
                  "Nilai": ringkasan_catatan_metode(forecast_meta)},
                 *[{"Butir": f"Versi {k}", "Nilai": v} for k, v in (forecast_meta.get("lingkungan") or {}).items()],
             ])
-            ringkas.to_excel(writer, sheet_name="Ringkasan Peramalan", index=False)
+            netralkan_df(ringkas).to_excel(writer, sheet_name="Ringkasan Peramalan", index=False)
 
         # Sheet 5: Log Pembersihan
         if cleaning_log:
-            pd.DataFrame(cleaning_log).to_excel(writer, sheet_name="Log Pembersihan", index=False)
+            netralkan_df(pd.DataFrame(cleaning_log)).to_excel(writer, sheet_name="Log Pembersihan", index=False)
             
         # Format styling pada workbook
         wb = writer.book

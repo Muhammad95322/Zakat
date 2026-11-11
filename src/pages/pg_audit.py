@@ -38,7 +38,8 @@ def show():
     st.dataframe(df_logs, use_container_width=True)
     
     # Tombol Ekspor CSV
-    csv_bytes = df_logs.to_csv(index=False).encode("utf-8")
+    from src.ekspor_aman import ke_csv_aman
+    csv_bytes = ke_csv_aman(df_logs)
     st.download_button(
         "📥 Ekspor Log ke CSV",
         data=csv_bytes,

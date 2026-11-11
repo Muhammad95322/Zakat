@@ -176,7 +176,10 @@ class TestPemilihanMetode:
         tgl = _tgl(data)
         tgl_depan = pd.date_range(tgl[-1] + pd.DateOffset(months=1), periods=12, freq="MS")
         pred, _ = fc._METODE[meta["kode_metode"]].fungsi(y, tgl, tgl_depan)
-        assert np.allclose(df["proyeksi"], np.maximum(pred, 0))
+        # proyeksi_tanpa_koreksi = model dilatih ulang; proyeksi = setelah koreksi bias bila dipakai
+        assert np.allclose(df["proyeksi_tanpa_koreksi"], np.maximum(pred, 0))
+        faktor = [f["faktor"] for f in meta["koreksi_bias"]["faktor_per_horizon"]]
+        assert np.allclose(df["proyeksi"], df["proyeksi_tanpa_koreksi"] * np.array(faktor))
 
     def test_tabel_perbandingan(self):
         _, meta = forecast_donations(_bulanan(36))
@@ -564,6 +567,8 @@ class TestSelangPerHorizonManual:
         monkeypatch.setattr(fc, "_KANDIDAT", [palsu])
         monkeypatch.setattr(fc, "_METODE", {palsu.kode: palsu})
         df, meta = forecast_donations(_dari_nilai([100.0] * 40))
+        # galat +-c bergantian: median rasio ~1, koreksi bias tidak memperbaiki -> tidak dipakai
+        assert meta["koreksi_bias"]["dipakai"] is False
         c = 0.05 * np.arange(1, 13)
         assert np.allclose(df["batas_bawah"], df["proyeksi"] * (1 - c))
         assert np.allclose(df["batas_atas"], df["proyeksi"] * (1 + c))
@@ -756,3 +761,126 @@ class TestKonsistensiSelang:
         if k["peringatan"]:
             assert "PERINGATAN: " + k["peringatan"] in meta["warning"]
         assert (df.loc[ada, "batas_bawah"] >= 0).all() and (df.loc[ada, "batas_bawah"] <= df.loc[ada, "batas_atas"]).all()
+
+
+def _kandidat_rasio(fungsi_rasio, kode="tren_linier"):
+    """Kandidat palsu pada data konstan 100: prediksi langkah h = 100 / rasio(t, h),
+    sehingga rasio aktual/prediksi backtest persis = fungsi_rasio(t, h)."""
+    asli = fc._METODE[kode]
+
+    def f(y, tgl, tgl_depan):
+        t = len(y)
+        return np.array([100.0 / fungsi_rasio(t, h) for h in range(1, len(tgl_depan) + 1)]), np.zeros(t)
+
+    return fc.Kandidat(asli.kode, asli.label, f, 3)
+
+
+def _satu_kandidat(monkeypatch, kandidat):
+    monkeypatch.setattr(fc, "_KANDIDAT", [kandidat])
+    monkeypatch.setattr(fc, "_METODE", {kandidat.kode: kandidat})
+
+
+class TestKoreksiBiasManual:
+    def test_faktor_dan_mape_evaluasi_dihitung_manual(self):
+        # h = 1, rasio 1.0 .. 1.6, 2.0 pada t = 3..10. Belajar untuk t_i: rasio dengan t_j + 1 <= t_i.
+        rinci = {1: list(zip(range(3, 11), [1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 2.0]))}
+        # t_i = 9: belajar t=3..8 -> median(1.0..1.5) = 1.25 ; t_i = 10: belajar t=3..9 -> median = 1.3
+        assert fc.faktor_belajar(rinci, 1, 9) == (pytest.approx(1.25), "dikoreksi", 6)
+        assert fc.faktor_belajar(rinci, 1, 10) == (pytest.approx(1.3), "dikoreksi", 7)
+        assert fc.faktor_belajar(rinci, 1, 8)[2] == 5  # belum cukup -> tidak dievaluasi
+        uji = fc.uji_koreksi_bertingkat(rinci)
+        tanpa = (abs(1 - 1 / 1.6) + abs(1 - 1 / 2.0)) / 2 * 100          # 43,75
+        dengan = (abs(1 - 1.25 / 1.6) + abs(1 - 1.3 / 2.0)) / 2 * 100   # 28,4375
+        assert uji["n_eval"] == 2 and uji["titik_awal_eval"] == [9, 10]
+        assert uji["mape_tanpa"] == pytest.approx(round(tanpa, 2)) and uji["mape_dengan"] == pytest.approx(round(dengan, 2))
+        assert uji["dipakai"] is False and "terlalu sedikit" in uji["alasan"]  # 2 < 12 pasangan
+
+    def test_aturan_ketersediaan_untuk_horizon_lebih_jauh(self):
+        rinci = {3: [(t, 1.0 + t / 100) for t in range(3, 20)]}
+        # untuk t_i = 15 dan h = 3 hanya t_j + 3 <= 15 -> t_j <= 12
+        assert fc.rasio_belajar(rinci, 3, 15) == [1.0 + t / 100 for t in range(3, 13)]
+
+    def test_koreksi_dipakai_ujung_ke_ujung(self, monkeypatch):
+        # bias konstan: rasio selalu 1.25 -> faktor 1.25, proyeksi 80 -> 100, galat terkoreksi 0
+        _satu_kandidat(monkeypatch, _kandidat_rasio(lambda t, h: 1.25))
+        df, meta = forecast_donations(_dari_nilai([100.0] * 40))
+        kb = meta["koreksi_bias"]
+        assert kb["dipakai"] is True and kb["uji"]["mape_dengan"] == 0.0
+        assert all(f["faktor"] == pytest.approx(1.25) for f in kb["faktor_per_horizon"])
+        assert np.allclose(df["proyeksi_tanpa_koreksi"], 80.0) and np.allclose(df["proyeksi"], 100.0)
+        assert np.allclose(df["batas_bawah"], 100.0) and np.allclose(df["batas_atas"], 100.0)  # berpusat di proyeksi
+        assert meta["konsistensi_selang"]["bulan_di_luar"] == []
+        assert "Koreksi bias dipakai" in fc.ringkasan_catatan_metode(meta)
+
+
+class TestKoreksiTidakMembantu:
+    def test_rasio_berselang_seling_koreksi_tidak_dipakai(self, monkeypatch):
+        # rasio bergantian 1.6 dan 0.8: median data belajar ~1, koreksi tidak memperbaiki
+        _satu_kandidat(monkeypatch, _kandidat_rasio(lambda t, h: 1.6 if (t + h) % 2 else 0.8))
+        df, meta = forecast_donations(_dari_nilai([100.0] * 40))
+        kb = meta["koreksi_bias"]
+        assert kb["dipakai"] is False
+        assert "tidak membaik secara nyata" in kb["alasan"]
+        assert all(f["faktor"] == 1.0 for f in kb["faktor_per_horizon"])
+        assert np.allclose(df["proyeksi"], df["proyeksi_tanpa_koreksi"])
+        assert "Koreksi bias tidak dipakai" in fc.ringkasan_catatan_metode(meta)
+
+    def test_faktor_di_luar_rentang_tidak_dipakai(self, monkeypatch):
+        _satu_kandidat(monkeypatch, _kandidat_rasio(lambda t, h: 3.0))  # faktor 3 > 2.0
+        _, meta = forecast_donations(_dari_nilai([100.0] * 40))
+        kb = meta["koreksi_bias"]
+        assert kb["dipakai"] is False
+        assert all("di luar rentang wajar" in f["status"] for f in kb["faktor_per_horizon"])
+
+
+class TestKonsistensiUjungKeUjung:
+    def test_bias_tanpa_koreksi_memicu_peringatan(self, monkeypatch):
+        # rasio konstan 1.25 tetapi koreksi dipaksa tidak dipakai -> selang = 1.25 x proyeksi, proyeksi di luar
+        _satu_kandidat(monkeypatch, _kandidat_rasio(lambda t, h: 1.25))
+        asli = fc.uji_koreksi_bertingkat
+        monkeypatch.setattr(fc, "uji_koreksi_bertingkat",
+                            lambda r: {**asli(r), "dipakai": False, "alasan": "dipaksa untuk tes"})
+        df, meta = forecast_donations(_dari_nilai([100.0] * 40))
+        k = meta["konsistensi_selang"]
+        assert k["bulan_di_luar"] == list(range(1, 13))
+        assert "di luar selang di 12 dari 12 bulan" in k["peringatan"]
+        assert "meremehkan" in k["peringatan"]
+        assert "PERINGATAN: " + k["peringatan"] in meta["warning"]
+        assert df["proyeksi_di_dalam_selang"].tolist() == [False] * 12
+
+
+class TestKoreksiDataPendek:
+    @pytest.mark.parametrize("n", [7, 10, 14])
+    def test_kurang_dari_enam_rasio_tanpa_error(self, n):
+        df, meta = forecast_donations(_bulanan(n))
+        kb = meta["koreksi_bias"]
+        assert kb["dipakai"] is False and "terlalu sedikit" in kb["alasan"]
+        assert np.allclose(df["proyeksi"], df["proyeksi_tanpa_koreksi"])
+        assert any("hanya" in f["status"] for f in kb["faktor_per_horizon"])
+
+    def test_tanpa_backtest(self):
+        df, meta = forecast_donations(_bulanan(5))
+        assert meta["koreksi_bias"]["dipakai"] is False
+        assert np.allclose(df["proyeksi"], df["proyeksi_tanpa_koreksi"])
+
+
+class TestKoreksiTanpaKebocoran:
+    def test_faktor_tidak_berubah_bila_data_setelah_t_diubah(self):
+        data = _bulanan(36)
+        y = data["total_dana"].to_numpy()
+        tgl = _tgl(data)
+        kandidat = fc._METODE["tren_linier"]
+        rinci = fc.rasio_per_horizon_rinci(kandidat, y, tgl, 12)
+        rng = np.random.default_rng(3)
+        diperiksa = 0
+        for hh in (1, 3, 6, 12):
+            for t_i in sorted({t for t, _ in rinci[hh]}):
+                f_asli = fc.faktor_belajar(rinci, hh, t_i)
+                if f_asli[2] < fc.MIN_RASIO_KOREKSI:
+                    continue
+                y_rusak = y.copy()
+                y_rusak[t_i:] = rng.uniform(1, 1e12, len(y) - t_i)  # ubah semua nilai di luar y[:t_i]
+                rinci_rusak = fc.rasio_per_horizon_rinci(kandidat, y_rusak, tgl, 12)
+                assert fc.faktor_belajar(rinci_rusak, hh, t_i) == f_asli, (hh, t_i)
+                diperiksa += 1
+        assert diperiksa >= 10

@@ -516,6 +516,20 @@ def faktor_koreksi(rasio: List[float]) -> Tuple[float, str]:
     return f, "dikoreksi"
 
 
+def rasio_belajar(rinci: Dict[int, List[Tuple[int, float]]], hh: int, t_i: int) -> List[float]:
+    """Rasio langkah ``hh`` yang AKTUALNYA sudah diketahui pada titik awal t_i
+    (t_j + hh <= t_i), maks MAKS_TITIK_AWAL terbaru. Inilah satu-satunya data yang
+    boleh dipakai untuk mempelajari faktor koreksi saat menilai jendela t_i."""
+    return [r for t_j, r in rinci.get(hh, []) if t_j + hh <= t_i][-MAKS_TITIK_AWAL:]
+
+
+def faktor_belajar(rinci: Dict[int, List[Tuple[int, float]]], hh: int, t_i: int) -> Tuple[float, str, int]:
+    """Faktor koreksi yang dipelajari untuk menilai jendela (t_i, hh), tanpa kebocoran."""
+    belajar = rasio_belajar(rinci, hh, t_i)
+    f, status = faktor_koreksi(belajar)
+    return f, status, len(belajar)
+
+
 def uji_koreksi_bertingkat(rinci: Dict[int, List[Tuple[int, float]]]) -> Dict[str, Any]:
     """Uji tanpa kebocoran apakah koreksi bias memperbaiki proyeksi.
 
@@ -531,10 +545,9 @@ def uji_koreksi_bertingkat(rinci: Dict[int, List[Tuple[int, float]]]) -> Dict[st
     n_luar_batas = 0
     for hh, sampel in rinci.items():
         for t_i, r_i in sampel:
-            belajar = [r for t_j, r in sampel if t_j + hh <= t_i][-MAKS_TITIK_AWAL:]
-            if len(belajar) < MIN_RASIO_KOREKSI:
+            f, status, n_belajar = faktor_belajar(rinci, hh, t_i)
+            if n_belajar < MIN_RASIO_KOREKSI:
                 continue
-            f, status = faktor_koreksi(belajar)
             if status != "dikoreksi":
                 n_luar_batas += 1
             ape_tanpa.append(abs(1 - 1 / r_i))

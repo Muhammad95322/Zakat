@@ -3,6 +3,7 @@
 Contoh:
     python scripts/bandingkan_metode.py
     python scripts/bandingkan_metode.py --transaksi 1500
+    python scripts/bandingkan_metode.py --berkas data/sample/data_contoh.xlsx
 """
 import argparse
 import sys
@@ -19,24 +20,30 @@ from src.sample_data import generate_sample_data  # noqa: E402
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--transaksi", type=int, default=5000, help="jumlah transaksi penghimpunan (bawaan 5000)")
+    ap.add_argument("--berkas", help="berkas Excel/CSV (mis. data/sample/data_contoh.xlsx) sebagai ganti data sintetis")
     args = ap.parse_args()
 
-    df_h, _ = generate_sample_data(args.transaksi, 10)
-    df, _, _ = clean_data(df_h)
+    if args.berkas:
+        from src.pipeline import siapkan_data
+        df = siapkan_data(Path(args.berkas).read_bytes(), Path(args.berkas).name)["df_himpun"]
+        args.transaksi = f"{len(df)} (berkas {args.berkas})"
+    else:
+        df_h, _ = generate_sample_data(args.transaksi, 10)
+        df, _, _ = clean_data(df_h)
     monthly = get_trend_analysis(df)["monthly"]
     _, meta = forecast_donations(monthly)
 
-    print(f"Data contoh: {args.transaksi} transaksi, {meta['n_bulan']} bulan")
-    print(f"{'Metode':60s} {'Latih':>5s} {'Uji':>4s} {'MAPE':>10s}  Keterangan")
+    print(f"Data contoh: {args.transaksi} transaksi, {meta['n_bulan']} bulan, horizon uji {meta['bulan_uji']} bulan")
+    print(f"{'Metode':60s} {'Rata2':>8s} {'Median':>8s} {'Terburuk':>9s} {'SD':>7s} {'Jendela':>7s} {'Gagal':>5s}  Status")
     for b in meta.get("perbandingan", []):
-        mape = "-" if b["mape"] is None else f"{b['mape']:.2f}%"
-        tanda = " <- terpilih" if b["terpilih"] else ""
-        print(f"{b['metode']:60s} {b['bulan_latih']:>5} {b['bulan_uji']:>4} {mape:>10s}  {b['status']}{tanda}")
-    print(f"\nMetode terpilih: {meta['metode']} | MAPE: {format_mape(meta)}")
-    if meta.get("peringatan_keandalan"):
-        print("PERINGATAN:", meta["peringatan_keandalan"])
-    if meta.get("fallback_alasan"):
-        print("PERINGATAN:", meta["fallback_alasan"])
+        f = lambda v: "-" if v is None else f"{v:.2f}"
+        tanda = "TERPILIH" if b["terpilih"] else b["status"]
+        print(f"{b['metode']:60s} {f(b['mape']):>8s} {f(b['mape_median']):>8s} {f(b['mape_terburuk']):>9s} "
+              f"{f(b['mape_std']):>7s} {b['n_jendela']:>7} {b['n_gagal']:>5}  {tanda}")
+    print(f"\nMetode terpilih: {meta['metode']} | rata-rata MAPE: {format_mape(meta)}")
+    for kunci in ("catatan_stabilitas", "peringatan_keandalan", "fallback_alasan", "selang_keterangan"):
+        if meta.get(kunci):
+            print(f"{kunci}: {meta[kunci]}")
     return 0
 
 

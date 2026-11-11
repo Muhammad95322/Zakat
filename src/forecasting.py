@@ -2,11 +2,11 @@
 
 Prinsip modul ini: angka yang ditampilkan harus jujur.
 
-* Metode tidak dipilih berdasarkan panjang data, melainkan lewat backtest:
-  beberapa bulan terakhir disisihkan sebagai data uji, setiap metode kandidat
-  yang memenuhi syarat data dilatih HANYA pada bulan latih, lalu diuji pada
-  bulan uji yang sama. Metode dengan MAPE terkecil dipilih, kemudian dilatih
-  ulang pada seluruh data untuk membuat proyeksi.
+* Metode dipilih lewat backtest BERGULIR (rolling origin): untuk setiap titik
+  awal t (maksimal 12 titik terbaru, langkah 1 bulan) metode dilatih HANYA pada
+  y[:t], memprediksi horizon tetap H bulan, lalu MAPE dihitung terhadap
+  y[t:t+H]. Metode dengan rata-rata MAPE lintas titik awal terkecil dipilih,
+  kemudian dilatih ulang pada seluruh data untuk membuat proyeksi.
 * Jika data terlalu pendek untuk backtest, dipakai metode sederhana
   (rata-rata bergerak) dan ``mape`` bernilai ``None`` ("tidak tersedia").
 * Tabel perbandingan semua kandidat disimpan di ``meta["perbandingan"]``.
@@ -32,9 +32,14 @@ METODE_TREN_RAMADAN = "Tren linier + penanda Ramadan/Idulfitri (kalender Hijriah
 
 MAPE_TIDAK_TERSEDIA = "tidak tersedia"
 BATAS_MAPE_ANDAL = 50.0
-_MAKS_BULAN_UJI = 6
-_MIN_BULAN_UJI = 3
+HORIZON_UJI = 6          # horizon backtest bawaan (bulan)
+_MIN_HORIZON = 3         # horizon terpendek yang masih dipakai untuk data pendek
+MAKS_TITIK_AWAL = 12     # jumlah titik awal (terbaru) yang diuji
+MIN_TITIK_AWAL = 2       # minimal titik awal valid agar metode dianggap teruji
 _MIN_BULAN_DATA = 3
+# Alias kompatibilitas nama lama
+_MAKS_BULAN_UJI = HORIZON_UJI
+_MIN_BULAN_UJI = _MIN_HORIZON
 
 Prediktor = Callable[[np.ndarray, pd.DatetimeIndex, pd.DatetimeIndex], Tuple[np.ndarray, np.ndarray]]
 
@@ -194,31 +199,70 @@ def _hitung_mape(aktual: np.ndarray, prediksi: np.ndarray) -> Optional[float]:
     return float(np.mean(np.abs((aktual[mask] - prediksi[mask]) / aktual[mask])) * 100)
 
 
+def horizon_backtest(n: int) -> int:
+    """Horizon H backtest untuk data n bulan (0 = backtest bergulir tidak mungkin).
+
+    H = 6 bila data cukup; untuk data pendek H diperpendek (minimal 3) agar
+    masih ada >= 2 titik awal dengan >= 3 bulan latih: H <= n - 3 - 1.
+    """
+    h = min(HORIZON_UJI, n - _MIN_BULAN_DATA - (MIN_TITIK_AWAL - 1))
+    return h if h >= _MIN_HORIZON else 0
+
+
+def titik_awal_backtest(n: int) -> List[int]:
+    """Titik awal t (jumlah bulan latih) yang horizon penuhnya tersedia.
+
+    Hanya t dengan t + H <= n (tanpa jendela terpotong), maksimal
+    MAKS_TITIK_AWAL titik terbaru, langkah 1 bulan, dan t >= 3.
+    """
+    h = horizon_backtest(n)
+    if h == 0:
+        return []
+    akhir = n - h
+    awal = max(_MIN_BULAN_DATA, akhir - MAKS_TITIK_AWAL + 1)
+    return list(range(awal, akhir + 1))
+
+
 def jumlah_bulan_uji(n: int) -> int:
-    """Jumlah bulan uji backtest untuk data n bulan (0 = backtest tidak mungkin)."""
-    n_uji = min(_MAKS_BULAN_UJI, n - _MIN_BULAN_DATA)
-    return n_uji if n_uji >= _MIN_BULAN_UJI else 0
+    """Kompatibilitas: horizon backtest (bulan uji per titik awal)."""
+    return horizon_backtest(n)
 
 
-def _prediksi_backtest(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex, n_uji: int) -> np.ndarray:
-    """Latih HANYA pada y[:-n_uji] lalu prediksi n_uji bulan berikutnya."""
-    y_latih = y[:-n_uji].copy()  # salinan: fungsi tidak dapat menyentuh data uji
-    pred, _ = kandidat.fungsi(y_latih, tgl[:-n_uji], tgl[-n_uji:])
+def _prediksi_backtest(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex, t: int, h: int) -> np.ndarray:
+    """Latih HANYA pada y[:t] lalu prediksi h bulan berikutnya (tgl[t:t+h])."""
+    y_latih = y[:t].copy()  # salinan: fungsi tidak dapat menyentuh data setelah t
+    pred, _ = kandidat.fungsi(y_latih, tgl[:t], tgl[t:t + h])
     return np.maximum(np.asarray(pred, dtype=float), 0)
 
 
-def _uji_kandidat(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex, n_uji: int,
+def _ringkas(nilai: List[float]) -> Dict[str, Optional[float]]:
+    if not nilai:
+        return {"mape": None, "mape_median": None, "mape_terburuk": None, "mape_std": None}
+    a = np.asarray(nilai, dtype=float)
+    return {
+        "mape": round(float(a.mean()), 2),
+        "mape_median": round(float(np.median(a)), 2),
+        "mape_terburuk": round(float(a.max()), 2),
+        "mape_std": round(float(a.std(ddof=1)), 2) if len(a) > 1 else None,
+    }
+
+
+def _uji_kandidat(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex, titik: List[int], h: int,
                   tgl_depan: pd.DatetimeIndex) -> Dict[str, Any]:
     n = len(y)
-    baris = {
+    baris: Dict[str, Any] = {
         "kode": kandidat.kode,
         "metode": kandidat.label,
-        "bulan_latih": n - n_uji,
-        "bulan_uji": n_uji,
-        "mape": None,
+        "bulan_uji": h,
+        "titik_awal": [],
+        "mape_per_jendela": {},
+        "n_jendela": 0,
+        "n_gagal": 0,
         "status": "",
         "tersedia": False,
+        "andal": True,
         "terpilih": False,
+        **_ringkas([]),
     }
     if kandidat.prasyarat is not None:
         alasan = kandidat.prasyarat(tgl, tgl_depan)
@@ -229,29 +273,51 @@ def _uji_kandidat(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex, n_uj
     if n < kandidat.min_total:
         baris["status"] = f"tidak diuji: {kandidat.syarat_total} (data {n} bulan)"
         return baris
-    if n - n_uji < kandidat.min_latih:
+    titik_valid = [t for t in titik if t >= kandidat.min_latih]
+    if len(titik_valid) < MIN_TITIK_AWAL:
         baris["status"] = (
-            f"tidak diuji: butuh minimal {kandidat.min_latih} bulan latih + {_MIN_BULAN_UJI} bulan uji"
+            f"tidak diuji: butuh minimal {MIN_TITIK_AWAL} titik awal dengan >= {kandidat.min_latih} bulan latih "
+            f"dan horizon {h} bulan (tersedia {len(titik_valid)})"
         )
         return baris
-    try:
-        pred = _prediksi_backtest(kandidat, y, tgl, n_uji)
-    except ImportError as exc:
-        baris["status"] = f"tidak tersedia: pustaka statsmodels tidak dapat diimpor ({exc})"
-        baris["gangguan"] = True
+
+    galat_relatif: List[float] = []
+    alasan_gagal: List[str] = []
+    for t in titik_valid:
+        try:
+            pred = _prediksi_backtest(kandidat, y, tgl, t, h)
+        except ImportError as exc:
+            baris["status"] = f"tidak tersedia: pustaka statsmodels tidak dapat diimpor ({exc})"
+            baris["gangguan"] = True
+            return baris
+        except _ModelGagal as exc:
+            baris["n_gagal"] += 1
+            alasan_gagal.append(str(exc))
+            continue
+        except _TidakMemenuhiSyarat:
+            continue  # titik awal ini tidak memenuhi syarat metode (bukan kegagalan)
+        aktual = y[t:t + h]
+        mape = _hitung_mape(aktual, pred)
+        if mape is None:
+            continue  # semua aktual 0: MAPE tak terdefinisi untuk jendela ini
+        baris["mape_per_jendela"][t] = round(mape, 2)
+        mask = pred > 0
+        galat_relatif.extend(((aktual[mask] - pred[mask]) / pred[mask]).tolist())
+
+    baris["titik_awal"] = sorted(baris["mape_per_jendela"])
+    baris["n_jendela"] = len(baris["titik_awal"])
+    baris["_galat_relatif"] = galat_relatif
+    baris["_alasan_gagal"] = alasan_gagal
+    baris.update(_ringkas(list(baris["mape_per_jendela"].values())))
+    if baris["n_jendela"] < MIN_TITIK_AWAL:
+        detail = f"; gagal di {baris['n_gagal']} titik awal ({alasan_gagal[0]})" if alasan_gagal else ""
+        baris["status"] = (
+            f"tidak diuji: hanya {baris['n_jendela']} titik awal yang valid (butuh {MIN_TITIK_AWAL}){detail}"
+        )
+        baris.update(_ringkas([]))
+        if alasan_gagal:
+            baris["gangguan"] = True
         return baris
-    except _ModelGagal as exc:
-        baris["status"] = f"tidak tersedia: {exc}"
-        baris["gangguan"] = True
-        return baris
-    except _TidakMemenuhiSyarat as exc:
-        baris["status"] = f"tidak diuji: {exc}"
-        return baris
-    mape = _hitung_mape(y[-n_uji:], pred)
-    if mape is None:
-        baris["status"] = "MAPE tidak terdefinisi: semua nilai aktual periode uji bernilai 0"
-        return baris
-    baris["mape"] = round(mape, 2)
     baris["status"] = "diuji"
     baris["tersedia"] = True
     return baris
@@ -259,17 +325,18 @@ def _uji_kandidat(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex, n_uj
 
 def bandingkan_metode(y: np.ndarray, tgl: pd.DatetimeIndex,
                       tgl_depan: Optional[pd.DatetimeIndex] = None) -> Tuple[List[Dict[str, Any]], int]:
-    """Backtest semua kandidat pada jendela uji yang sama.
+    """Backtest bergulir semua kandidat.
 
     Returns:
-        (tabel perbandingan, jumlah bulan uji). Tabel kosong bila backtest tidak mungkin.
+        (tabel perbandingan, horizon H). Tabel kosong bila backtest bergulir tidak mungkin.
     """
-    n_uji = jumlah_bulan_uji(len(y))
-    if n_uji == 0:
+    titik = titik_awal_backtest(len(y))
+    if not titik:
         return [], 0
+    h = horizon_backtest(len(y))
     if tgl_depan is None:
         tgl_depan = pd.DatetimeIndex([])
-    return [_uji_kandidat(k, y, tgl, n_uji, tgl_depan) for k in _KANDIDAT], n_uji
+    return [_uji_kandidat(k, y, tgl, titik, h, tgl_depan) for k in _KANDIDAT], h
 
 
 def _hasil_kosong(n: int) -> Tuple[pd.DataFrame, Dict[str, Any]]:
@@ -278,12 +345,17 @@ def _hasil_kosong(n: int) -> Tuple[pd.DataFrame, Dict[str, Any]]:
         "kode_metode": None,
         "warning": "Data historis kurang dari 3 bulan sehingga peramalan tidak dibuat.",
         "mape": None,
+        "mape_median": None,
+        "mape_terburuk": None,
+        "mape_std": None,
+        "n_jendela": 0,
         "mape_keterangan": "MAPE tidak tersedia: tidak ada peramalan.",
         "bulan_uji": 0,
         "bulan_latih": 0,
         "fallback": False,
         "fallback_alasan": None,
         "peringatan_keandalan": None,
+        "catatan_stabilitas": None,
         "perbandingan": [],
         "dasar_pemilihan": "Tidak ada peramalan.",
         "n_bulan": n,
@@ -299,24 +371,29 @@ def _tanggal_bulanan(monthly_df: pd.DataFrame) -> pd.DatetimeIndex:
     return pd.DatetimeIndex(periode).to_period("M").to_timestamp()
 
 
+def _urutan(kode: str) -> int:
+    return [k.kode for k in _KANDIDAT].index(kode)
+
+
 def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    """Meramalkan penerimaan donasi bulanan dengan metode terbaik hasil backtest.
+    """Meramalkan penerimaan donasi bulanan dengan metode terbaik hasil backtest bergulir.
 
     Args:
         monthly_df: DataFrame dengan kolom ['periode_str', 'total_dana'] terurut waktu.
         periods: Jumlah bulan proyeksi (default 12)
 
     Returns:
-        (forecast_df, meta). ``meta`` berisi:
+        (forecast_df, meta). ``meta`` berisi antara lain:
           - metode / kode_metode: metode terpilih (label jujur)
-          - mape: MAPE backtest metode terpilih (float, %), atau None
+          - mape: RATA-RATA MAPE lintas titik awal metode terpilih (float, %), atau None
+          - mape_median, mape_terburuk, mape_std, n_jendela: sebaran MAPE metode terpilih
           - mape_keterangan: cara MAPE dihitung / alasan tidak tersedia
-          - bulan_latih, bulan_uji: ukuran jendela backtest
-          - perbandingan: list dict per kandidat (metode, mape, bulan_latih, bulan_uji, status, terpilih)
-          - dasar_pemilihan: kalimat penjelasan pemilihan metode
-          - peringatan_keandalan: teks bila semua MAPE > 50%, selain itu None
-          - fallback / fallback_alasan: True + alasan bila ada kandidat yang tidak tersedia
-            karena statsmodels tidak ada atau model gagal/tidak konvergen
+          - bulan_uji: horizon H; bulan_latih: bulan latih pada titik awal terbaru
+          - perbandingan: list dict per kandidat (mape, mape_median, mape_terburuk, mape_std,
+            n_jendela, n_gagal, titik_awal, mape_per_jendela, status, andal, terpilih)
+          - dasar_pemilihan, peringatan_keandalan, catatan_stabilitas
+          - fallback / fallback_alasan: kandidat yang tidak tersedia/tidak andal karena
+            statsmodels tidak ada atau model gagal/tidak konvergen
           - warning: gabungan catatan untuk pengguna
           - n_bulan: jumlah bulan data historis
     """
@@ -328,10 +405,10 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
     tgl = _tanggal_bulanan(monthly_df)
     tgl_depan = pd.date_range(tgl[-1] + pd.DateOffset(months=1), periods=periods, freq="MS")
 
-    perbandingan, n_uji = bandingkan_metode(y, tgl, tgl_depan)
+    perbandingan, h = bandingkan_metode(y, tgl, tgl_depan)
     tersedia = sorted(
         (b for b in perbandingan if b["tersedia"]),
-        key=lambda b: (b["mape"], [k.kode for k in _KANDIDAT].index(b["kode"])),
+        key=lambda b: (b["mape"], _urutan(b["kode"])),
     )
     gangguan = [b for b in perbandingan if b.get("gangguan")]
 
@@ -359,16 +436,21 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
             b["status"] = f"lolos backtest tetapi gagal dilatih pada seluruh data: {exc}"
             catatan.append(f"PERINGATAN: {b['metode']} gagal dilatih pada seluruh data ({exc}).")
 
+    titik = titik_awal_backtest(n)
     if terpilih is not None:
         terpilih["terpilih"] = True
         kode = terpilih["kode"]
         mape = terpilih["mape"]
         mape_ket = (
-            f"MAPE dihitung dari backtest: {n - n_uji} bulan pertama untuk melatih model, "
-            f"{n_uji} bulan terakhir sebagai data uji; semua kandidat diuji pada bulan yang sama."
+            f"MAPE = rata-rata dari backtest bergulir: {terpilih['n_jendela']} titik awal "
+            f"(bulan latih {terpilih['titik_awal'][0]}-{terpilih['titik_awal'][-1]}), "
+            f"masing-masing memprediksi {h} bulan ke depan."
         )
         lain = [b for b in tersedia if b is not terpilih]
-        dasar = f"Dipilih karena MAPE backtest terkecil ({mape:.2f}%) dari {len(tersedia)} metode yang dapat diuji"
+        dasar = (
+            f"Dipilih karena rata-rata MAPE backtest bergulir terkecil ({mape:.2f}%) "
+            f"dari {len(tersedia)} metode yang dapat diuji"
+        )
         if lain:
             dasar += "; pembanding: " + ", ".join(f"{b['metode']} {b['mape']:.2f}%" for b in lain)
         dasar += "."
@@ -377,11 +459,11 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
         pred, residual = _METODE[kode].fungsi(y, tgl, tgl_depan)
         mape = None
         if perbandingan:
-            mape_ket = "MAPE tidak tersedia: tidak ada metode yang dapat diuji dengan backtest pada data ini."
+            mape_ket = "MAPE tidak tersedia: tidak ada metode yang dapat diuji dengan backtest bergulir pada data ini."
         else:
             mape_ket = (
-                f"MAPE tidak tersedia: data {n} bulan terlalu pendek untuk backtest "
-                f"(butuh minimal {_MIN_BULAN_DATA + _MIN_BULAN_UJI} bulan)."
+                f"MAPE tidak tersedia: data {n} bulan terlalu pendek untuk backtest bergulir "
+                f"(butuh minimal {_MIN_BULAN_DATA + _MIN_HORIZON + MIN_TITIK_AWAL - 1} bulan)."
             )
         dasar = "Backtest tidak dapat dilakukan, sehingga dipakai metode paling sederhana."
         catatan.append(
@@ -390,11 +472,10 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
         )
 
     peringatan_keandalan = None
-    if tersedia and all(b["mape"] > BATAS_MAPE_ANDAL for b in tersedia):
+    if terpilih is not None and mape > BATAS_MAPE_ANDAL:
         peringatan_keandalan = (
-            f"Semua metode yang diuji memiliki MAPE backtest di atas {BATAS_MAPE_ANDAL:.0f}% "
-            f"(terkecil {tersedia[0]['mape']:.2f}%). Proyeksi belum dapat diandalkan untuk perencanaan; "
-            "gunakan hanya sebagai gambaran kasar."
+            f"Rata-rata MAPE backtest metode terpilih {mape:.2f}% (di atas {BATAS_MAPE_ANDAL:.0f}%). "
+            "Proyeksi belum dapat diandalkan untuk perencanaan; gunakan hanya sebagai gambaran kasar."
         )
         catatan.append("PERINGATAN: " + peringatan_keandalan)
 
@@ -411,20 +492,26 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
     })
 
     for b in perbandingan:
-        b.pop("gangguan", None)
-        b.pop("nonaktif", None)
+        for k in ("gangguan", "nonaktif", "_galat_relatif", "_alasan_gagal"):
+            b.pop(k, None)
 
+    pilih = terpilih or {}
     meta = {
         "metode": _METODE[kode].label,
         "kode_metode": kode,
         "warning": " ".join(catatan),
         "mape": mape,
+        "mape_median": pilih.get("mape_median"),
+        "mape_terburuk": pilih.get("mape_terburuk"),
+        "mape_std": pilih.get("mape_std"),
+        "n_jendela": pilih.get("n_jendela", 0),
         "mape_keterangan": mape_ket,
-        "bulan_uji": n_uji if mape is not None else 0,
-        "bulan_latih": (n - n_uji) if mape is not None else n,
+        "bulan_uji": h if mape is not None else 0,
+        "bulan_latih": titik[-1] if (mape is not None and titik) else n,
         "fallback": fallback_alasan is not None,
         "fallback_alasan": fallback_alasan,
         "peringatan_keandalan": peringatan_keandalan,
+        "catatan_stabilitas": None,
         "perbandingan": perbandingan,
         "dasar_pemilihan": dasar,
         "n_bulan": n,
@@ -432,13 +519,17 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
     return df_forecast, meta
 
 
+def _fmt_persen(v: Optional[float]) -> str:
+    return MAPE_TIDAK_TERSEDIA if v is None else f"{v:.2f}%"
+
+
 def tabel_perbandingan(meta: Optional[Dict[str, Any]]) -> pd.DataFrame:
     """Tabel perbandingan MAPE siap tampil (UI/PDF/Excel)."""
     baris = (meta or {}).get("perbandingan") or []
     return pd.DataFrame([{
         "Metode": b["metode"],
-        "MAPE backtest": MAPE_TIDAK_TERSEDIA if b["mape"] is None else f"{b['mape']:.2f}%",
-        "Bulan latih": b["bulan_latih"],
-        "Bulan uji": b["bulan_uji"],
+        "Rata-rata MAPE": _fmt_persen(b["mape"]),
+        "Terburuk": _fmt_persen(b["mape_terburuk"]),
+        "Jendela": b["n_jendela"],
         "Status": ("TERPILIH" if b["terpilih"] else b["status"]),
     } for b in baris])

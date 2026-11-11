@@ -97,8 +97,9 @@ def chart_komposisi_png(comp_df: pd.DataFrame, kolom: str = "jenis_dana") -> Opt
     return _ke_png(fig)
 
 
-def chart_peramalan_png(monthly_df: pd.DataFrame, forecast_df: pd.DataFrame) -> Optional[bytes]:
-    """Historis + proyeksi dengan pita interval ~95%."""
+def chart_peramalan_png(monthly_df: pd.DataFrame, forecast_df: pd.DataFrame,
+                        label_selang: Optional[str] = "Selang proyeksi") -> Optional[bytes]:
+    """Historis + proyeksi, dengan pita selang bila tersedia (batas tidak NaN)."""
     if forecast_df is None or forecast_df.empty or monthly_df is None or monthly_df.empty:
         return None
     hist_labels = monthly_df["periode_str"].astype(str).tolist()
@@ -108,8 +109,9 @@ def chart_peramalan_png(monthly_df: pd.DataFrame, forecast_df: pd.DataFrame) -> 
     xf = list(range(n, n + len(fc_labels)))
     fig, ax = plt.subplots(figsize=(8, 3.4))
     ax.plot(range(n), monthly_df["total_dana"], color=WARNA_SERI_1, linewidth=2, label="Historis")
-    ax.fill_between(xf, forecast_df["batas_bawah"], forecast_df["batas_atas"],
-                    color=WARNA_SERI_2, alpha=0.18, linewidth=0, label="Interval ~95%")
+    if label_selang and forecast_df[["batas_bawah", "batas_atas"]].notna().all().all():
+        ax.fill_between(xf, forecast_df["batas_bawah"], forecast_df["batas_atas"],
+                        color=WARNA_SERI_2, alpha=0.18, linewidth=0, label=label_selang)
     ax.plot([n - 1] + xf, [monthly_df["total_dana"].iloc[-1]] + forecast_df["proyeksi"].tolist(),
             color=WARNA_SERI_2, linewidth=2, linestyle="--", label="Proyeksi")
     _gaya(ax, "Proyeksi penghimpunan (Rp)")

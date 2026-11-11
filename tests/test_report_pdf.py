@@ -2,6 +2,8 @@
 import io
 import re
 
+import numpy as np
+
 import pandas as pd
 import pytest
 
@@ -99,4 +101,29 @@ def test_pdf_mape_sama_dengan_metode_terpilih(analisis, n_bulan):
     assert mape == format_mape(meta)
     terpilih = [b for b in meta["perbandingan"] if b["terpilih"]]
     assert len(terpilih) == 1 and terpilih[0]["mape"] == meta["mape"]
+    # MAPE yang tampil = rata-rata lintas titik awal metode terpilih
+    rata = round(float(np.mean(list(terpilih[0]["mape_per_jendela"].values()))), 2)
+    assert meta["mape"] == pytest.approx(rata)
+    assert mape == f"{rata:.2f}%"
     assert f"Estimasi galat (MAPE backtest): {format_mape(meta)}" in teks_rapi
+
+
+
+@pytest.mark.parametrize("n_bulan", [36, 18])
+def test_excel_mape_sama_dengan_rata_rata_metode_terpilih(analisis, n_bulan):
+    from src.report_excel import generate_excel_report
+    stats, trend, _ = analisis
+    monthly = trend["monthly"].iloc[:n_bulan].reset_index(drop=True)
+    fdf, meta = forecast_donations(monthly)
+    xlsx = generate_excel_report(pd.DataFrame({"jumlah": [1.0]}), stats, None, fdf, None, meta)
+    sh = pd.read_excel(io.BytesIO(xlsx), sheet_name=None)
+    tabel = sh["Perbandingan Metode"]
+    baris = tabel[tabel["Status"] == "TERPILIH"]
+    assert len(baris) == 1
+    terpilih = next(b for b in meta["perbandingan"] if b["terpilih"])
+    rata = float(np.mean(list(terpilih["mape_per_jendela"].values())))
+    assert float(baris["Rata-rata MAPE (%)"].iloc[0]) == pytest.approx(rata, abs=0.006)
+    assert int(baris["Jendela"].iloc[0]) == terpilih["n_jendela"]
+    ringkas = sh["Ringkasan Peramalan"].set_index("Butir")["Nilai"]
+    assert float(ringkas["Rata-rata MAPE backtest bergulir (%)"]) == pytest.approx(meta["mape"])
+    assert ringkas["Metode terpilih"] == meta["metode"]

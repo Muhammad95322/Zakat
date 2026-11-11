@@ -1,6 +1,8 @@
 """Modul pembuatan visualisasi interaktif Plotly dengan tema Hijau-Teal."""
 import plotly.express as px
 import plotly.graph_objects as go
+from typing import Optional
+
 import pandas as pd
 import numpy as np
 
@@ -110,8 +112,9 @@ def chart_lorenz(lorenz_x: list, lorenz_y: list, gini_val: float) -> go.Figure:
     return fig
 
 
-def chart_forecasting(monthly_df: pd.DataFrame, forecast_df: pd.DataFrame) -> go.Figure:
-    """Grafik historis + proyeksi peramalan ke depan dengan confidence interval."""
+def chart_forecasting(monthly_df: pd.DataFrame, forecast_df: pd.DataFrame,
+                      label_selang: Optional[str] = "Selang proyeksi") -> go.Figure:
+    """Grafik historis + proyeksi peramalan ke depan, dengan selang bila tersedia."""
     fig = go.Figure()
     
     if not monthly_df.empty:
@@ -123,7 +126,11 @@ def chart_forecasting(monthly_df: pd.DataFrame, forecast_df: pd.DataFrame) -> go
             name="Historis Aktual"
         ))
         
-    if not forecast_df.empty:
+    ada_selang = (
+        not forecast_df.empty and bool(label_selang)
+        and forecast_df[["batas_bawah", "batas_atas"]].notna().all().all()
+    )
+    if ada_selang:
         # Upper bound
         fig.add_trace(go.Scatter(
             x=forecast_df["periode"],
@@ -141,8 +148,9 @@ def chart_forecasting(monthly_df: pd.DataFrame, forecast_df: pd.DataFrame) -> go
             line=dict(width=0),
             fill="tonexty",
             fillcolor="rgba(20, 184, 166, 0.2)",
-            name="Rentang Kepercayaan (95%)"
+            name=label_selang
         ))
+    if not forecast_df.empty:
         # Proyeksi line
         fig.add_trace(go.Scatter(
             x=forecast_df["periode"],

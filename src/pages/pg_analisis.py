@@ -1,6 +1,7 @@
 """Halaman Analisis Interaktif ZIS Komprehensif dengan Visualisasi dan Ekspor."""
 import logging
 import os
+import re
 import streamlit as st
 import pandas as pd
 from pathlib import Path
@@ -16,7 +17,7 @@ from src.analysis import (
     get_distribution_analysis, get_statistical_tests
 )
 from src.rfm import segment_rfm
-from src.forecasting import forecast_donations, format_mape, tabel_perbandingan
+from src.forecasting import forecast_donations, format_mape_lengkap, tabel_perbandingan
 from src.charts import (
     chart_trend_bulanan, chart_komposisi_donut, chart_bar_wilayah,
     chart_lorenz, chart_forecasting
@@ -227,25 +228,34 @@ def show():
     # TAB 6: Proyeksi & Prediksi
     with tab6:
         st.markdown("### Proyeksi Penerimaan 12 Bulan ke Depan")
-        st.caption(f"Metode: **{forecast_meta.get('metode')}** | Estimasi Galat (MAPE backtest): **{format_mape(forecast_meta)}**")
+        st.caption(
+            f"Metode: **{forecast_meta.get('metode')}** | Estimasi Galat (MAPE backtest bergulir): "
+            f"**{format_mape_lengkap(forecast_meta)}**"
+        )
         if forecast_meta.get("peringatan_keandalan"):
             st.warning(f"⚠️ {forecast_meta['peringatan_keandalan']}")
         if forecast_meta.get("fallback"):
             st.warning(f"⚠️ {forecast_meta.get('fallback_alasan')}")
+        if forecast_meta.get("catatan_stabilitas"):
+            st.info(f"⚖️ {forecast_meta['catatan_stabilitas']}")
         if forecast_meta.get("mape_keterangan"):
             st.caption(forecast_meta["mape_keterangan"])
         if forecast_meta.get("dasar_pemilihan"):
             st.caption(f"Dasar pemilihan: {forecast_meta['dasar_pemilihan']}")
-        tabel_metode = tabel_perbandingan(forecast_meta)
+        tabel_metode = tabel_perbandingan(forecast_meta, lengkap=True)
         if not tabel_metode.empty:
-            with st.expander("📊 Perbandingan MAPE backtest semua metode", expanded=True):
+            with st.expander("📊 Perbandingan MAPE backtest bergulir semua metode", expanded=True):
                 st.dataframe(tabel_metode, use_container_width=True, hide_index=True)
-        catatan_lain = [c for c in forecast_meta.get("warning", "").split("PERINGATAN: ")[0:1] if c.strip()]
-        if catatan_lain:
-            st.info(catatan_lain[0].strip())
+        # Catatan umum = bagian awal warning sebelum PERINGATAN/CATATAN (sudah ditampilkan terpisah)
+        catatan_umum = re.split(r"(?:PERINGATAN|CATATAN): ", forecast_meta.get("warning", ""))[0].strip()
+        if catatan_umum:
+            st.info(catatan_umum)
             
         if not forecast_df.empty:
-            st.plotly_chart(chart_forecasting(trend["monthly"], forecast_df), use_container_width=True, key="chart_analisis_7")
+            st.plotly_chart(chart_forecasting(trend["monthly"], forecast_df, forecast_meta.get("selang_label")),
+                            use_container_width=True, key="chart_analisis_7")
+            if forecast_meta.get("selang_keterangan"):
+                st.caption(forecast_meta["selang_keterangan"])
             st.dataframe(forecast_df.rename(columns={
                 "periode": "Bulan", "proyeksi": "Proyeksi Donasi (Rp)",
                 "batas_bawah": "Batas Bawah (Rp)", "batas_atas": "Batas Atas (Rp)"

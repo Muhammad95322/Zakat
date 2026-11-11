@@ -14,6 +14,7 @@ def create_access_token(
     tenant_id: Optional[str],
     peran: str,
     email: str,
+    sesi_versi: int = 0,
 ) -> str:
     """Buat JWT access token.
 
@@ -34,6 +35,7 @@ def create_access_token(
         "peran": peran,
         "email": email,
         "type": "access",
+        "sv": int(sesi_versi or 0),
         "iat": now,
         "exp": expire,
     }

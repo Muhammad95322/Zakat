@@ -107,7 +107,12 @@ def show():
                         db, user["id"], password_lama, password_baru
                     )
                 if success:
-                    st.success("✅ Kata sandi berhasil diubah.")
+                    # sesi_versi naik -> terbitkan token baru untuk sesi ini; sesi lain berakhir
+                    from src.services.auth_service import token_akses_baru
+                    from src.auth.session import update_session_user
+                    with get_db() as db:
+                        update_session_user({"access_token": token_akses_baru(db, user["id"])})
+                    st.success("✅ Kata sandi berhasil diubah. Sesi di perangkat lain telah diakhiri.")
                 else:
                     st.error(
                         "❌ Kata sandi saat ini tidak benar. Periksa kembali dan coba lagi."

@@ -39,7 +39,11 @@ def show():
         from src.repositories.user_repo import get_users_by_tenant
 
         with get_db() as db:
-            members = get_users_by_tenant(db, tenant_id) if tenant_id else []
+            members = [
+                {"id": m.id, "nama_lengkap": m.nama_lengkap, "email": m.email, "peran": m.peran,
+                 "is_active": m.is_active}
+                for m in (get_users_by_tenant(db, tenant_id) if tenant_id else [])
+            ]
 
         if members:
             for member in members:
@@ -75,7 +79,7 @@ def show():
                                 try:
                                     from src.repositories.user_repo import update_user_role
                                     with get_db() as db2:
-                                        update_user_role(db2, member.get("id"), new_role)
+                                        update_user_role(db2, member.get("id"), new_role, oleh=user)
                                     st.success("Peran diperbarui!")
                                     st.rerun()
                                 except Exception as ex:
@@ -94,7 +98,7 @@ def show():
                                     try:
                                         from src.repositories.user_repo import deactivate_user
                                         with get_db() as db3:
-                                            deactivate_user(db3, member.get("id"))
+                                            deactivate_user(db3, member.get("id"), oleh=user)
                                         st.session_state.pop(f"confirm_deact_{member.get('id')}", None)
                                         st.success("Pengguna dinonaktifkan.")
                                         st.rerun()
@@ -135,8 +139,10 @@ def show():
                 from src.services.auth_service import kirim_undangan
 
                 with get_db() as db:
-                    kirim_undangan(db, tenant_id=tenant_id, email=email_undang.strip(), peran=peran_undang)
+                    kirim_undangan(db, tenant_id=tenant_id, email=email_undang.strip(), peran=peran_undang, oleh=user)
                 st.success(f"✅ Undangan terkirim ke **{email_undang}** dengan peran **{peran_undang}**.")
+            except (ValueError, PermissionError) as e:
+                st.error(f"❌ {e}")
             except ImportError as e:
                 st.error("Sistem sedang dalam pemeliharaan.")
                 st.caption(f"Detail teknis: {e}")
@@ -145,7 +151,7 @@ def show():
     st.subheader("📋 Undangan Tertunda")
     try:
         from src.database import get_db
-        from src.repositories.user_repo import get_pending_invitations
+        from src.services.auth_service import get_pending_invitations
 
         with get_db() as db:
             invitations = get_pending_invitations(db, tenant_id) if tenant_id else []
@@ -164,9 +170,9 @@ def show():
                 with col5:
                     if st.button("Batalkan", key=f"cancel_inv_{inv.get('id')}"):
                         try:
-                            from src.repositories.user_repo import cancel_invitation
+                            from src.services.auth_service import cancel_invitation
                             with get_db() as db2:
-                                cancel_invitation(db2, inv.get("id"))
+                                cancel_invitation(db2, inv.get("id"), tenant_id, oleh=user)
                             st.rerun()
                         except Exception as ex:
                             st.error(f"Gagal: {ex}")

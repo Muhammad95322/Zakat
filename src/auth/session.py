@@ -60,3 +60,46 @@ def require_login():
         st.session_state["page"] = "login"
         st.rerun()
 
+
+
+def update_session_user(perubahan: Dict[str, Any]) -> None:
+    user = get_current_user()
+    if user is not None:
+        user.update(perubahan)
+        st.session_state["current_user"] = user
+
+
+def validasi_sesi_data(user: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Periksa sesi terhadap token dan DB; kembalikan data peran/lembaga terkini atau None bila tidak berlaku.
+
+    Sesi berlaku hanya jika: token akses ada, belum kedaluwarsa, milik pengguna itu, akun masih aktif
+    dan terverifikasi, lembaganya aktif, dan sesi_versi token sama dengan di DB.
+    """
+    from src.auth.jwt_handler import get_current_user_from_token, decode_token
+    from src.database import get_db
+    from src.models.user import User
+
+    if not user or not user.get("access_token"):
+        return None
+    data = get_current_user_from_token(user["access_token"])
+    if not data or str(data.get("user_id")) != str(user.get("id")):
+        return None
+    sv = (decode_token(user["access_token"]) or {}).get("sv", 0)
+    with get_db() as db:
+        u = db.query(User).filter(User.id == user.get("id")).first()
+        if not u or not u.is_active or not u.is_verified or (u.sesi_versi or 0) != sv:
+            return None
+        if u.tenant is not None and not u.tenant.is_active:
+            return None
+        return {"peran": u.peran, "tenant_id": str(u.tenant_id) if u.tenant_id else None,
+                "nama_lengkap": u.nama_lengkap, "email": u.email}
+
+
+def validasi_sesi() -> bool:
+    """Dipanggil di setiap muat halaman terlindungi. Sesi tidak berlaku -> dihapus."""
+    terkini = validasi_sesi_data(get_current_user())
+    if terkini is None:
+        clear_session()
+        return False
+    update_session_user(terkini)  # peran/lembaga selalu dari DB (perubahan peran langsung berlaku)
+    return True

@@ -44,6 +44,8 @@ class User(Base):
     last_login = Column(DateTime)
     failed_login_count = Column(Integer, default=0, nullable=False)
     locked_until = Column(DateTime)
+    # Naik setiap sandi diganti/direset atau akun dinonaktifkan; sesi dengan versi lama tidak berlaku
+    sesi_versi = Column(Integer, default=0, server_default="0", nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 

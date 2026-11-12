@@ -94,6 +94,19 @@ def buat_laporan(
     if summary_himpun.get("satuan_nominal"):
         peringatan.append(f"Nominal dikonversi dari satuan {summary_himpun['satuan_nominal']} rupiah sesuai judul "
                           "kolomnya.")
+    identik = int(summary_himpun.get("identik_dipertahankan") or 0)
+    id_berbagi = int(summary_himpun.get("id_berbagi") or 0)
+    awal: List[str] = []
+    if summary_himpun.get("seluruh_ganda"):
+        awal.append("Setiap baris data muncul tepat dua kali: kemungkinan seluruh isi berkas tertempel atau "
+                    "terunggah dua kali (unggahan ganda utuh).")
+    if identik:
+        awal.append(f"{identik} baris identik dipertahankan karena tidak ada ID transaksi; periksa apakah ada "
+                    "unggahan ganda.")
+    if id_berbagi:
+        awal.append(f"{id_berbagi} baris berbagi ID transaksi yang sama tetapi isinya berbeda (mis. satu kwitansi "
+                    "untuk beberapa pos); semuanya dipertahankan.")
+    peringatan[:0] = awal
     if deteksi.get("status") == "ragu":
         peringatan.append("Pemetaan kolom tidak sepenuhnya yakin: " + " ".join(deteksi.get("alasan", [])))
 
@@ -124,11 +137,38 @@ def buat_laporan(
         "penyaluran": salur,
         "peringatan": peringatan,
         "peramalan_terbatas": bool(valid and rentang < BULAN_MINIMUM_PERAMALAN),
+        "identik_dipertahankan": identik,
+        "salinan_identik": int(summary_himpun.get("salinan_identik") or 0),
+        "contoh_identik": list(summary_himpun.get("contoh_identik") or []),
+        "seluruh_ganda": bool(summary_himpun.get("seluruh_ganda")),
+        "kolom_id_transaksi": summary_himpun.get("kolom_id_transaksi"),
+        "id_berbagi": id_berbagi,
+        "contoh_id_berbagi": list(summary_himpun.get("contoh_id_berbagi") or []),
+        "id_transaksi_unik": bool((deteksi.get("opsi") or {}).get("id_transaksi_unik")),
+        "sumber_id_transaksi": summary_himpun.get("sumber_id_transaksi"),
+        "buang_duplikat_persis": bool((deteksi.get("opsi") or {}).get("buang_duplikat_persis")),
     }
 
 
 _STATUS = {"otomatis": "terdeteksi otomatis", "tersimpan": "memakai pemetaan tersimpan lembaga",
            "pengguna": "dipilih pengguna (wizard)", "ragu": "tebakan otomatis (perlu dicek)"}
+
+
+def _teks_id(lap: Dict[str, Any]) -> str:
+    if lap.get("kolom_id_transaksi"):
+        asal = "dari isi kolom" if lap.get("sumber_id_transaksi") == "isi" else "dari judul kolom"
+        teks = f"kolom '{lap['kolom_id_transaksi']}' ({asal}); salinan utuh dibuang"
+        if lap.get("id_transaksi_unik"):
+            return teks + "; baris ber-ID sama juga dibuang (pilihan lembaga: ID dianggap unik)"
+        if lap.get("id_berbagi"):
+            teks += f"; {lap['id_berbagi']} baris berbagi ID dengan isi berbeda dipertahankan"
+        if lap.get("identik_dipertahankan"):
+            teks += f"; {lap['identik_dipertahankan']} baris tanpa ID yang identik dipertahankan"
+        return teks
+    if lap.get("buang_duplikat_persis"):
+        return "tidak ada; duplikat persis dibuang (pilihan lembaga)"
+    n = lap.get("identik_dipertahankan") or 0
+    return f"tidak ada; {n} baris identik dipertahankan" if n else "tidak ada"
 
 
 def tabel_kualitas(lap: Dict[str, Any]) -> pd.DataFrame:
@@ -149,6 +189,7 @@ def tabel_kualitas(lap: Dict[str, Any]) -> pd.DataFrame:
         ("Rentang tanggal", lap.get("rentang_tanggal", "-")),
         ("Rentang bulan", f"{lap.get('rentang_bulan', 0)} bulan ({lap.get('bulan_berdata', 0)} bulan berisi transaksi)"),
         ("Urutan tanggal numerik", lap.get("urutan_tanggal", "-")),
+        ("ID transaksi", _teks_id(lap)),
     ]
     for k, nilai in (lap.get("kategori_tak_dikenal") or {}).items():
         baris.append((f"Tidak dikenali: {LABEL_BIDANG.get(k, k)}",

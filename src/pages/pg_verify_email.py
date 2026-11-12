@@ -80,7 +80,6 @@ def show():
                 st.error(
                     "Sistem sedang dalam pemeliharaan. Silakan coba beberapa saat lagi."
                 )
-                st.caption(f"Detail teknis: {e}")
                 if st.button("Kembali ke Login", use_container_width=True):
                     st.session_state["page"] = "login"
                     st.rerun()

@@ -27,10 +27,15 @@ class TestDataCleaning:
         ]
         df_raw = pd.DataFrame(data)
         df_clean, logs, summary = clean_data(df_raw, "Penghimpunan")
-        
-        # 4 baris -> 1 duplikat terbuang, 1 negatif terbuang -> sisa 2
+
+        # Tanpa kolom ID transaksi: baris identik DIPERTAHANKAN (dihitung), 1 negatif terbuang -> sisa 3
+        assert len(df_clean) == 3
+        assert summary["duplikat"] == 0 and summary["identik_dipertahankan"] == 2 and summary["salinan_identik"] == 1
+
+        # Pengguna memilih membuang duplikat persis (unggahan ganda) -> sisa 2
+        df_clean, logs, summary = clean_data(df_raw, "Penghimpunan", buang_duplikat_persis=True)
         assert len(df_clean) == 2
-        assert summary["duplikat"] == 1
+        assert summary["duplikat"] == 1 and summary["identik_dipertahankan"] == 0
         assert df_clean["jenis_dana"].iloc[0] == "Zakat Maal" # Koreksi typo 'Zakat Mal'
         assert df_clean["kanal"].iloc[0] == "QRIS" # Standardisasi casing 'QRIS'
 

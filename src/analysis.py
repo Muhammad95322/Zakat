@@ -180,5 +180,7 @@ def get_statistical_tests(df_himpun: pd.DataFrame) -> Dict[str, Any]:
             "penjelasan": penjelasan
         }
     except Exception as e:
-        return {"pesan": f"Gagal menjalankan uji statistik: {e}"}
+        import logging
+        logging.getLogger("zakat.analisis").info("uji statistik gagal", extra={"galat": type(e).__name__})
+        return {"pesan": "Uji statistik tidak dapat dijalankan pada data ini (mis. kelompok terlalu sedikit)."}
 

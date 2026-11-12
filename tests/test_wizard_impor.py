@@ -112,6 +112,44 @@ at.session_state["page"] = "analisis"
 at.run()
 lapor("ANL")
 print("ANL_EXPANDER=" + " | ".join(e.label for e in at.expander))
+
+# 7. baris identik tanpa ID transaksi: peringatan + tombol buang duplikat; pilihan disimpan bersama pemetaan
+at.session_state["page"] = "upload"
+identik = ("Tanggal;Donatur;Jenis Dana;Nominal\n" + "05/01/2024;Siti;infaq;100.000\n" * 10
+           + "06/01/2024;Budi;zakat mal;250.000\n").encode()
+AKTIF["berkas"] = Berkas("identik.csv", identik)
+at.run()
+at.button(key="btn_proses_unggah").click().run()
+lapor("IDENTIK")
+print("IDENTIK_TOMBOL=" + " | ".join(b.label for b in at.button if b.key == "btn_buang_duplikat"))
+at.button(key="btn_buang_duplikat").click().run()
+lapor("BUANG")
+print("BUANG_INFO=" + " | ".join(e.value for e in at.info))
+with get_db() as db:
+    from src.services.pemetaan_service import daftar_pemetaan
+    print("BUANG_OPSI=" + str([p["opsi"] for p in daftar_pemetaan(db, tid)]))
+
+# 8. berkas yang sama diunggah lagi: peringatan unggahan ganda utuh
+at.run()
+at.button(key="btn_proses_unggah").click().run()
+lapor("KEMBAR")
+
+# 9. kwitansi dua pos (ID sama, isi beda): dipertahankan + peringatan; tombol opsional "ID unik"
+dua_pos = "No. Bukti;Tanggal;Donatur;Jenis Dana;Nominal\n" + "".join(
+    f"KW-{k};{k:02d}/03/2024;D{k};zakat mal;1.000.000\nKW-{k};{k:02d}/03/2024;D{k};infaq;250.000\n"
+    for k in range(1, 6))
+AKTIF["berkas"] = Berkas("dua_pos.csv", dua_pos.encode())
+at.run()
+at.button(key="btn_proses_unggah").click().run()
+lapor("IDBAGI")
+print("IDBAGI_TOMBOL=" + " | ".join(b.label for b in at.button if b.key == "btn_id_unik"))
+at.button(key="btn_id_unik").click().run()
+lapor("IDUNIK")
+print("IDUNIK_INFO=" + " | ".join(e.value for e in at.info))
+with get_db() as db:
+    print("IDUNIK_OPSI=" + str([p["opsi"] for p in daftar_pemetaan(db, tid)]))
+at.button(key="btn_id_tidak_unik").click().run()
+lapor("IDBATAL")
 '''
 
 
@@ -164,6 +202,35 @@ def test_berkas_rusak_pesan_tanpa_traceback(keluaran):
     assert "Traceback" not in keluaran["RUSAK_ERR"]
     assert keluaran["RUSAK_OK"] == ""  # pesan sukses unggahan sebelumnya tidak menyesatkan
     assert keluaran["RUSAK_UPLOAD"] == "2"
+
+
+def test_baris_identik_peringatan_dan_tombol_buang(keluaran):
+    assert keluaran["IDENTIK_EXC"].startswith("0"), keluaran["IDENTIK_EXC"]
+    assert ("10 baris identik dipertahankan karena tidak ada ID transaksi; periksa apakah ada unggahan ganda."
+            in keluaran["IDENTIK_WARN"])
+    assert keluaran["IDENTIK_TOMBOL"] == "🧹 Buang 9 baris duplikat persis (unggahan ganda)"
+    assert keluaran["BUANG_EXC"].startswith("0")
+    assert "duplikat persis DIBUANG" in keluaran["BUANG_OK"]
+    assert "Duplikat persis dibuang" in keluaran["BUANG_INFO"]
+    assert "'buang_duplikat_persis': True" in keluaran["BUANG_OPSI"]
+    assert "baris identik dipertahankan" not in keluaran["BUANG_WARN"]
+
+
+def test_berkas_sama_diunggah_lagi_diperingatkan(keluaran):
+    assert keluaran["KEMBAR_EXC"].startswith("0")
+    assert "identik byte demi byte dengan unggahan 'identik.csv'" in keluaran["KEMBAR_WARN"]
+
+
+def test_id_berbagi_dipertahankan_dan_tombol_id_unik_opsional(keluaran):
+    assert keluaran["IDBAGI_EXC"].startswith("0"), keluaran["IDBAGI_EXC"]
+    assert ("10 baris berbagi ID transaksi yang sama tetapi isinya berbeda (mis. satu kwitansi untuk beberapa pos); "
+            "semuanya dipertahankan." in keluaran["IDBAGI_WARN"])
+    assert keluaran["IDBAGI_TOMBOL"] == "Anggap ID transaksi unik, buang baris ber-ID sama"
+    assert keluaran["IDUNIK_EXC"].startswith("0")
+    assert "ID transaksi dianggap UNIK" in keluaran["IDUNIK_OK"] and "dianggap unik" in keluaran["IDUNIK_INFO"]
+    assert "'id_transaksi_unik': True" in keluaran["IDUNIK_OPSI"]
+    assert keluaran["IDBATAL_EXC"].startswith("0")
+    assert "baris berbagi ID transaksi yang sama" in keluaran["IDBATAL_WARN"]  # kembali dipertahankan
 
 
 def test_halaman_analisis_menampilkan_kualitas(keluaran):

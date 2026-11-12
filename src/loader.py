@@ -270,7 +270,8 @@ def _baca_csv(isi: bytes, nama: str) -> Tuple[Tabel, Dict[str, Any]]:
     try:
         baris = [[v if v.strip() else None for v in r] for r in csv.reader(baris_teks, delimiter=pemisah)]
     except csv.Error as e:
-        raise DataFileError(f"Berkas CSV '{nama}' tidak dapat dibaca: {e}. Simpan ulang sebagai CSV.")
+        raise DataFileError(f"Berkas CSV '{nama}' tidak dapat dibaca: ada tanda kutip yang tidak ditutup atau baris "
+                            "yang terpotong. Buka di program spreadsheet, simpan ulang sebagai CSV, lalu unggah kembali.")
     tabel = _bentuk_tabel(baris, "CSV")
     if tabel is None:
         raise DataFileError(f"Berkas CSV '{nama}' kosong: tidak ada judul kolom maupun data.")
@@ -315,7 +316,7 @@ def _sheet_mentah(isi: bytes, nama: str) -> List[Tuple[str, List[Sequence[Any]],
         wb = openpyxl.load_workbook(io.BytesIO(isi), read_only=not gabung, data_only=True)
     except Exception as e:
         raise DataFileError(
-            f"Berkas Excel '{nama}' rusak atau bukan file Excel yang valid ({type(e).__name__}). "
+            f"Berkas Excel '{nama}' rusak atau bukan file Excel yang valid. "
             "Buka dan simpan ulang berkas di Excel, lalu unggah kembali.")
     hasil = []
     batas = _batas_baris() + _BATAS_CARI_JUDUL + 1
@@ -342,7 +343,7 @@ def _sheet_mentah(isi: bytes, nama: str) -> List[Tuple[str, List[Sequence[Any]],
     except DataFileError:
         raise
     except Exception as e:
-        raise DataFileError(f"Berkas Excel '{nama}' tidak dapat dibaca ({type(e).__name__}). "
+        raise DataFileError(f"Berkas Excel '{nama}' tidak dapat dibaca karena isinya tidak sesuai format Excel. "
                             "Buka dan simpan ulang berkas di Excel, lalu unggah kembali.")
     finally:
         with contextlib.suppress(Exception):  # menutup berkas tidak boleh menutupi galat aslinya

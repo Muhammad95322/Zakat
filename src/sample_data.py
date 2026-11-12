@@ -93,6 +93,8 @@ def generate_sample_data(n_penghimpunan: int = 5000, n_penyaluran: int = 1500) -
             nominal *= random.uniform(1.2, 1.8)  # nosec B311
             
         rows_penghimpunan.append({
+            # nomor kuitansi unik per transaksi: salinan duplikat di bawah membawa nomor yang sama
+            "no_transaksi": f"TRX-{len(rows_penghimpunan) + 1:06d}",
             "tanggal": tgl.strftime("%Y-%m-%d"),
             "id_muzaki": mzk["id"],
             "nama_muzaki": mzk["nama"],
@@ -104,9 +106,12 @@ def generate_sample_data(n_penghimpunan: int = 5000, n_penyaluran: int = 1500) -
         })
 
     # Sisipkan dirty data yang disengaja
-    # a. Duplikat (50 baris)
+    # a. Duplikat (50 baris): salinan PERSIS (termasuk no_transaksi) dari baris yang sudah ada
+    pasangan_salinan = []
     for _ in range(50):
-        rows_penghimpunan.append(rows_penghimpunan[random.randint(0, 1000)].copy())  # nosec B311
+        sumber = random.randint(0, 1000)  # nosec B311
+        rows_penghimpunan.append(rows_penghimpunan[sumber].copy())
+        pasangan_salinan.append((sumber, len(rows_penghimpunan) - 1))
         
     # b. Outlier ekstrem (5 baris)
     for _ in range(5):
@@ -117,6 +122,11 @@ def generate_sample_data(n_penghimpunan: int = 5000, n_penyaluran: int = 1500) -
     for _ in range(30):
         idx = random.randint(0, len(rows_penghimpunan)-1)  # nosec B311
         rows_penghimpunan[idx]["kabupaten_kota"] = ""
+
+    # Mutasi b/c bisa mengenai sumber atau salinannya; samakan kembali agar duplikat tetap salinan persis
+    # (urutan acak tidak berubah, jadi data selain pasangan ini identik dengan versi sebelumnya).
+    for sumber, salinan in pasangan_salinan:
+        rows_penghimpunan[salinan] = rows_penghimpunan[sumber].copy()
 
     df_penghimpunan = pd.DataFrame(rows_penghimpunan)
 
@@ -172,6 +182,7 @@ def save_sample_and_template_files():
     # 2. Simpan template kosong dengan 1 baris contoh
     tmpl_path = tmpl_dir / "template_zakat.xlsx"
     df_h_tmpl = pd.DataFrame([{
+        "no_transaksi": "KW-2024-0001",  # nomor kuitansi/bukti unik: dasar pembuangan duplikat
         "tanggal": "2024-01-15",
         "id_muzaki": "MZK-0001",
         "nama_muzaki": "H. Sulaiman",

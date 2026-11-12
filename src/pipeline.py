@@ -52,13 +52,32 @@ def _tentukan_pemetaan(df: pd.DataFrame, pemetaan: Optional[Dict[str, Optional[s
         bersih, galat = validasi_pemetaan_pengguna(df, pemetaan)
         if galat:
             raise DataFileError("Pemetaan kolom belum benar: " + " ".join(galat))
-        return HasilDeteksi(pemetaan=bersih, status="pengguna", alasan=["Pemetaan kolom dipilih pengguna."],
-                            keyakinan={b: 1.0 for b in bersih}, sumber={b: "pengguna" for b in bersih})
+        return _lengkapi(df, HasilDeteksi(pemetaan=bersih, status="pengguna",
+                                          alasan=["Pemetaan kolom dipilih pengguna."],
+                                          keyakinan={b: 1.0 for b in bersih}, sumber={b: "pengguna" for b in bersih}))
     if pemetaan_lembaga:
         t = terapkan_tersimpan(df, pemetaan_lembaga)
         if t is not None:
-            return t
+            return _lengkapi(df, t)
     return deteksi_pemetaan(df, "Penghimpunan")
+
+
+# Bidang yang tidak ditawarkan wizard / mungkin belum ada saat pemetaan disimpan, tetapi aman dikenali dari judul
+_BIDANG_PELENGKAP = ("id_transaksi",)
+
+
+def _lengkapi(df: pd.DataFrame, det: HasilDeteksi) -> HasilDeteksi:
+    """Pemetaan pengguna/tersimpan menentukan bidang yang dikonfirmasi; kolom lain yang dikenali YAKIN dari
+    judulnya (mis. 'No. Kwitansi' -> ID transaksi) ikut dipetakan, selama kolomnya belum dipakai."""
+    otomatis = deteksi_pemetaan(df, "Penghimpunan")
+    dipakai = set(det.pemetaan.values())
+    for b in _BIDANG_PELENGKAP:
+        k = otomatis.pemetaan.get(b)
+        if b not in det.pemetaan and k and k not in dipakai and otomatis.sumber.get(b) == "judul":
+            det.pemetaan[b] = k
+            det.sumber[b] = "judul"
+            dipakai.add(k)
+    return det
 
 
 def periksa_berkas(file_bytes: bytes, filename: str,
@@ -176,12 +195,18 @@ def siapkan_data(
     pemetaan: Optional[Dict[str, Optional[str]]] = None,
     pemetaan_lembaga: Optional[Iterable[Dict[str, Any]]] = None,
     berkas: Optional[BerkasTerbaca] = None,
+    buang_duplikat_persis: Optional[bool] = None,
+    id_transaksi_unik: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Muat berkas, petakan kolom, bersihkan, dan susun laporan kualitas data.
 
     Args:
         pemetaan: pemetaan pilihan pengguna {bidang standar: judul kolom asli} (dari wizard).
         pemetaan_lembaga: daftar pemetaan tersimpan lembaga (lihat ``pemetaan_service``).
+        buang_duplikat_persis: bila berkas tanpa kolom ID transaksi, buang baris identik (unggahan ganda).
+            None = ikuti pilihan yang tersimpan bersama pemetaan lembaga (bawaan: dipertahankan).
+        id_transaksi_unik: anggap ID transaksi unik dan buang baris ber-ID sama walau isinya berbeda.
+            None = ikuti pilihan tersimpan (bawaan: TIDAK; satu kwitansi bisa memuat beberapa pos).
         berkas: hasil :func:`baca_berkas` untuk berkas yang sama (mis. dari ``periksa_berkas``) agar
             berkas besar tidak dibaca dua kali.
 
@@ -203,7 +228,15 @@ def siapkan_data(
             f"Tidak ada baris penghimpunan (masuk) di berkas '{filename}'. Kolom "
             f"'{det.pemetaan.get('arus') or det.pemetaan.get('masuk')}' tidak berisi transaksi masuk yang dikenali.")
     df_mapped, nama_asli = terapkan_pemetaan(df_h, ph)
+    if buang_duplikat_persis is None:
+        buang_duplikat_persis = bool(det.opsi.get("buang_duplikat_persis"))
+    det.opsi["buang_duplikat_persis"] = bool(buang_duplikat_persis)
+    if id_transaksi_unik is None:
+        id_transaksi_unik = bool(det.opsi.get("id_transaksi_unik"))
+    det.opsi["id_transaksi_unik"] = bool(id_transaksi_unik)
     df_himpun, log_himpun, summary = clean_data(df_mapped, "Penghimpunan", sudah_dipetakan=True,
+                                                buang_duplikat_persis=buang_duplikat_persis,
+                                                id_transaksi_unik=id_transaksi_unik,
                                                 nama_asli=nama_asli)
     if df_himpun.empty:
         raise DataFileError(_pesan_tanpa_baris_valid(summary, nama_asli))
@@ -241,6 +274,7 @@ def siapkan_data(
         "log_salur": log_salur,
         "kualitas": kualitas,
         "pemetaan": det_dict,
+        "kolom": [c for c in raw.columns if c != KOLOM_LOKASI],
         "info": berkas.info,
     }
 

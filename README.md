@@ -111,6 +111,19 @@ docker-compose up -d --build
 
 ---
 
+## 🕶️ Menganonimkan Data Sebelum Dibagikan (untuk pengguna non-teknis)
+
+1. Pasang Python 3.11+ dan unduh repo ini ke laptop Anda (skrip berjalan tanpa internet).
+2. Buka terminal di folder repo, lalu jalankan sekali: `pip install -r requirements.txt`.
+3. Salin berkas Excel/CSV asli ke folder `data/private/` (folder ini tidak pernah masuk git).
+4. Jalankan: `python scripts/anonimkan_data.py data/private/NAMA_BERKAS.xlsx`.
+5. Hasilnya ada di `data/private/anon/NAMA_BERKAS_anon.xlsx`; berkas asli tidak diubah.
+6. Nama & ID donatur/mustahik diganti kode (mis. `MZK-1A2B3C...`); HP, alamat, email, NIK, rekening, catatan dihapus.
+7. Baca laporan di layar: kolom apa yang dihapus dan PERINGATAN kolom yang perlu Anda periksa sendiri.
+8. Hapus kolom tambahan bila perlu: `python scripts/anonimkan_data.py BERKAS.xlsx --hapus-kolom "Nama Kolom"`.
+9. Kunci rahasia dibuat sekali di `~/.zakat-insight/kunci_anonim`: cadangkan, jangan dibagikan; kunci yang sama = kode yang sama.
+10. Buka hasilnya dan periksa sekilas sebelum dibagikan. Jangan pernah memasukkan berkas asli maupun hasil ke git atau mengunggahnya ke tempat publik.
+
 ## 🧪 Menjalankan Pengujian (Testing)
 
 ```bash

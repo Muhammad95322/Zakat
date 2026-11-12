@@ -1,32 +1,19 @@
 """Halaman login Zakat Insight."""
 import streamlit as st
+from src.components.tema import kepala_publik
+from src.components.tema import kepala_publik
 
 
 def show():
-    st.set_page_config(page_title="Login - Zakat Insight", page_icon="🕌", layout="centered")
-
-    # Custom CSS tema hijau-teal
-    st.markdown("""
-    <style>
-    .stButton > button { background-color: #0d9488; color: white; border-radius: 8px; width: 100%; }
-    .stButton > button:hover { background-color: #0f766e; }
-    .login-header { text-align: center; padding: 2rem 0 1rem; }
-    .error-box { background: #fef2f2; border: 1px solid #fca5a5; border-radius: 8px; padding: 1rem; }
-    .warning-box { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 1rem; }
-    </style>
-    """, unsafe_allow_html=True)
+    st.set_page_config(page_title="Login - Zakat Insight", page_icon=":material/bar_chart_4_bars:", layout="centered")
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown(
-            '<div class="login-header"><h1>🕌 Zakat Insight</h1>'
-            '<p>Platform Analitik Lembaga Zakat</p></div>',
-            unsafe_allow_html=True,
-        )
+        kepala_publik('Masuk', 'Analisis penghimpunan zakat, infak, dan sedekah lembaga Anda.')
 
         with st.form("form_login"):
-            email = st.text_input("Email", placeholder="admin@lembaga.id")
-            password = st.text_input("Kata Sandi", type="password")
+            email = st.text_input("Email", placeholder="nama@lembaga.id")
+            password = st.text_input("Kata sandi", type="password")
             submit = st.form_submit_button("Masuk", use_container_width=True)
 
         col_a, col_b = st.columns(2)
@@ -35,7 +22,7 @@ def show():
                 st.session_state["page"] = "reset_password"
                 st.rerun()
         with col_b:
-            if st.button("Daftar lembaga baru", use_container_width=True, type="secondary"):
+            if st.button("Daftarkan lembaga", use_container_width=True, type="secondary"):
                 st.session_state["page"] = "register"
                 st.rerun()
 
@@ -69,7 +56,7 @@ def show():
                 if not is_allowed:
                     menit = wait_secs // 60
                     st.error(
-                        f"⚠️ Terlalu banyak percobaan gagal. Coba lagi dalam {menit} menit."
+                        f"Terlalu banyak percobaan gagal. Coba lagi dalam {menit} menit."
                     )
                     return
 
@@ -100,7 +87,7 @@ def show():
                         batas_laju.catat(db, "login", ip, ua=ua)
                         catat_log(db, None, "login_gagal", ip=ip, ua=ua)  # tanpa email & sandi
                         st.error(
-                            "❌ Email atau kata sandi salah. Periksa kembali dan coba lagi."
+                            "Email atau kata sandi salah. Periksa kembali dan coba lagi."
                         )
             except ImportError:
                 st.error("Sistem sedang dalam pemeliharaan. Silakan coba beberapa saat lagi.")

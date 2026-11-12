@@ -1,5 +1,6 @@
 """Panel Super Administrator untuk manajemen seluruh lembaga (tenants)."""
 import streamlit as st
+from src.components.tema import judul_halaman
 import pandas as pd
 from datetime import date, timedelta
 from src.database import get_db
@@ -10,11 +11,11 @@ from src.models.upload import Upload
 
 def show():
     if get_user_role() != "super_admin":
-        st.error("⛔ Akses Terbatas untuk Super Administrator.")
+        st.error("Akses Terbatas untuk Super Administrator.")
         return
 
-    st.title("⚙️ Panel Super Administrator")
-    tab_tenants, tab_stats = st.tabs(["🏢 Daftar Seluruh Lembaga", "📈 Statistik Platform"])
+    judul_halaman("Super admin", "Pantau seluruh lembaga dan statistik platform.")
+    tab_tenants, tab_stats = st.tabs(["Daftar Seluruh Lembaga", "Statistik Platform"])
 
     with tab_tenants:
         with get_db() as db:
@@ -22,9 +23,9 @@ def show():
             
         st.markdown(f"Total Lembaga Terdaftar: **{len(tenants)}**")
         for t in tenants:
-            with st.expander(f"🏛️ {t.nama} (Paket: {t.paket.upper()})"):
+            with st.expander(f"{t.nama} (Paket: {t.paket.upper()})"):
                 st.write(f"- Slug: `{t.slug}` | Email Kontak: `{t.email_kontak}`")
-                st.write(f"- Status: {'🟢 Aktif' if t.is_active else '🔴 Nonaktif'}")
+                st.write(f"- Status: {'Aktif' if t.is_active else 'Nonaktif'}")
                 
                 c_p1, c_p2 = st.columns(2)
                 with c_p1:
@@ -39,7 +40,7 @@ def show():
                             set_paket(db, t.id, new_paket, date.today(), date.today() + timedelta(days=365))
                             st.success("Paket diperbarui.")
                             st.rerun()
-                with st.popover("🗑️ Hapus permanen"):
+                with st.popover("Hapus permanen"):
                     st.warning("Menghapus lembaga, semua pengguna, unggahan (termasuk berkas), dan log auditnya. "
                                "Tidak dapat dibatalkan. Buat backup lebih dulu.")
                     konfirmasi = st.text_input(f"Ketik slug `{t.slug}` untuk konfirmasi", key=f"konf_{t.id}")

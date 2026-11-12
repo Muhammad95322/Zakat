@@ -1,29 +1,18 @@
 """Halaman reset password - Zakat Insight."""
 import re
 import streamlit as st
+from src.components.tema import kepala_publik
 
 
 def show():
     st.set_page_config(
-        page_title="Reset Kata Sandi - Zakat Insight", page_icon="🕌", layout="centered"
+        page_title="Reset Kata Sandi - Zakat Insight", page_icon=":material/bar_chart_4_bars:", layout="centered"
     )
 
-    st.markdown("""
-    <style>
-    .stButton > button { border-radius: 8px; width: 100%; }
-    .reset-header { text-align: center; padding: 2rem 0 1rem; }
-    .info-box { background: #eff6ff; border: 1px solid #93c5fd; border-radius: 8px;
-                padding: 1rem; }
-    </style>
-    """, unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown(
-            '<div class="reset-header"><h1>🕌 Zakat Insight</h1>'
-            "<h3>Reset Kata Sandi</h3></div>",
-            unsafe_allow_html=True,
-        )
+        kepala_publik('Atur ulang kata sandi', 'Kami kirim tautan atur ulang ke email akun Anda.')
 
         # Cek apakah ada token di URL
         params = st.query_params
@@ -77,7 +66,7 @@ def _show_request_form():
 
             # Pesan & waktu respons SAMA untuk email terdaftar maupun tidak (email dikirim di latar belakang)
             st.success(
-                "✅ Jika email tersebut terdaftar, tautan reset kata sandi sedang dikirim. Tautan berlaku 1 jam."
+                "Jika email tersebut terdaftar, tautan reset kata sandi sedang dikirim. Tautan berlaku 1 jam."
             )
             st.info("Bila email tidak masuk dalam 10 menit, periksa folder spam lalu coba lagi. Bila tetap tidak "
                     "masuk, server email mungkin sedang bermasalah; hubungi admin lembaga Anda.")
@@ -128,13 +117,13 @@ def _show_new_password_form(token: str):
                 success = reset_password(db, token, new_password, ip=ip, ua=ua)
 
             if success:
-                st.success("✅ Kata sandi berhasil diubah! Silakan masuk dengan kata sandi baru.")
+                st.success("Kata sandi berhasil diubah! Silakan masuk dengan kata sandi baru.")
                 if st.button("Masuk Sekarang", use_container_width=True, type="primary"):
                     st.session_state["page"] = "login"
                     st.rerun()
             else:
                 st.error(
-                    "❌ Token tidak valid atau sudah kedaluwarsa. "
+                    "Token tidak valid atau sudah kedaluwarsa. "
                     "Silakan minta tautan reset baru."
                 )
 

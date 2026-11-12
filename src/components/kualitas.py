@@ -6,7 +6,7 @@ import streamlit as st
 from src.kualitas_data import tabel_kualitas
 
 
-def tampilkan_kualitas(lap: Dict[str, Any], judul: str = "📋 Laporan Kualitas Data", terbuka: bool = False) -> None:
+def tampilkan_kualitas(lap: Dict[str, Any], judul: str = "Laporan kualitas data", terbuka: bool = False) -> None:
     if not lap:
         return
     with st.expander(judul, expanded=terbuka):

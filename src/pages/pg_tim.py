@@ -1,5 +1,6 @@
 """Halaman manajemen tim - Zakat Insight."""
 import streamlit as st
+from src.components.tema import judul_bagian, judul_halaman
 
 
 def _check_access():
@@ -14,11 +15,11 @@ def _check_access():
 
 
 def show():
-    st.title("👥 Manajemen Tim")
+    judul_halaman("Tim", "Kelola anggota dan undang rekan kerja ke lembaga Anda.")
 
     has_access, peran = _check_access()
     if not has_access:
-        st.error("⛔ Akses ditolak. Halaman ini hanya untuk Admin dan Super Admin.")
+        st.error("Akses ditolak. Halaman ini hanya untuk Admin dan Super Admin.")
         return
 
     try:
@@ -32,7 +33,7 @@ def show():
     # =========================================================
     # Section 1: Daftar Anggota Tim
     # =========================================================
-    st.subheader("👥 Anggota Tim")
+    judul_bagian("Anggota tim")
 
     try:
         from src.database import get_db
@@ -48,20 +49,18 @@ def show():
         if members:
             for member in members:
                 with st.container(border=True):
-                    col1, col2, col3, col4, col5 = st.columns([3, 3, 2, 2, 2])
+                    col1, col2, col3, col4, col5 = st.columns([2.2, 2.6, 1.1, 1.1, 4], vertical_alignment="top")
                     with col1:
                         st.markdown(f"**{member.get('nama_lengkap', '-')}**")
                     with col2:
                         st.caption(member.get("email", "-"))
                     with col3:
                         peran_member = member.get("peran", "staf")
-                        badge = {"admin": "🟠", "staf": "🔵", "pembaca": "⚪"}.get(
-                            peran_member, "⚪"
-                        )
-                        st.markdown(f"{badge} {peran_member.replace('_', ' ').title()}")
+                        st.markdown(peran_member.replace('_', ' ').capitalize())
                     with col4:
-                        status_icon = "✅" if member.get("is_active") else "❌"
-                        st.markdown(f"{status_icon} {'Aktif' if member.get('is_active') else 'Nonaktif'}")
+                        aktif = bool(member.get("is_active"))
+                        st.markdown(f'<span class="zi-status {"siap" if aktif else "galat"}">'
+                                    f'{"Aktif" if aktif else "Nonaktif"}</span>', unsafe_allow_html=True)
                     with col5:
                         # Tombol ubah peran
                         new_role = st.selectbox(
@@ -73,7 +72,7 @@ def show():
                             key=f"role_{member.get('id')}",
                             label_visibility="collapsed",
                         )
-                        c1, c2 = st.columns(2)
+                        c1, c2 = st.columns([1, 1.6])
                         with c1:
                             if st.button("Ubah", key=f"ubah_{member.get('id')}", use_container_width=True):
                                 try:
@@ -130,7 +129,7 @@ def show():
     # =========================================================
     # Section 2: Undang Anggota Baru
     # =========================================================
-    st.subheader("✉️ Undang Anggota Baru")
+    judul_bagian("Undang anggota baru")
 
     with st.form("form_undang"):
         col1, col2 = st.columns(2)
@@ -152,18 +151,18 @@ def show():
                     undangan = kirim_undangan(db, tenant_id=tenant_id, email=email_undang.strip(), peran=peran_undang,
                                               oleh=user)
                 if getattr(undangan, "email_terkirim", True):
-                    st.success(f"✅ Undangan terkirim ke **{email_undang}** dengan peran **{peran_undang}**.")
+                    st.success(f"Undangan terkirim ke **{email_undang}** dengan peran **{peran_undang}**.")
                 else:
-                    st.warning("⚠️ Undangan dibuat, tetapi email undangan GAGAL dikirim (server email tidak dapat "
+                    st.warning("Undangan dibuat, tetapi email undangan GAGAL dikirim (server email tidak dapat "
                                "dihubungi atau menolak). Batalkan undangan ini di tabel di bawah lalu coba lagi "
                                "nanti, atau hubungi admin platform.")
             except (ValueError, PermissionError) as e:
-                st.error(f"❌ {e}")
+                st.error(f"{e}")
             except ImportError as e:
                 st.error("Sistem sedang dalam pemeliharaan.")
 
     # Tabel Undangan Tertunda
-    st.subheader("📋 Undangan Tertunda")
+    judul_bagian("Undangan tertunda")
     try:
         from src.database import get_db
         from src.services.auth_service import get_pending_invitations

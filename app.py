@@ -36,26 +36,18 @@ except Exception:
 # Set Page Config
 st.set_page_config(
     page_title="Zakat Insight - SaaS Analitik ZIS",
-    page_icon="🕌",
+    page_icon=":material/bar_chart_4_bars:",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="auto"
 )
 
 # Production: tolak akses http (TLS diterminasi proxy Render)
 from src.middleware.https import paksa_https
 paksa_https()
 
-# Custom Styling Tema Hijau-Teal
-st.markdown("""
-<style>
-    :root {
-        --primary-color: #0d9488;
-    }
-    .stButton>button {
-        border-radius: 6px;
-    }
-</style>
-""", unsafe_allow_html=True)
+# Tema visual (CSS global)
+from src.components.tema import terapkan_tema
+terapkan_tema()
 
 # State Defaults
 if "page" not in st.session_state:

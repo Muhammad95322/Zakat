@@ -391,11 +391,21 @@ class TestS4EscapeHtml:
                       email_undangan(jahat, jahat, "https://a/")):
             assert "<img" not in html_ and "&lt;img" in html_
 
-    def test_dashboard_escape(self):
+    def test_dashboard_escape(self, monkeypatch):
+        """Nama pengguna/lembaga/berkas masuk ke HTML (unsafe_allow_html): harus ter-escape. Diuji lewat perilaku
+        pembantu tampilan yang dipakai dashboard, plus nama berkas di-escape pada daftar berkas terbaru."""
         import inspect
+        import src.components.tema as tema
         import src.pages.pg_dashboard as pd_
-        sumber = inspect.getsource(pd_)
-        assert "escape(user.get" in sumber and "escape(tenant.nama" in sumber
+        keluaran = []
+        monkeypatch.setattr(tema.st, "markdown", lambda html_, **kw: keluaran.append(html_))
+        jahat = "<img src=x onerror=alert(1)>"
+        tema.judul_halaman(jahat, jahat)
+        tema.judul_bagian(jahat, jahat)
+        tema.kepala_publik(jahat, jahat)
+        gabung = "".join(keluaran)
+        assert "<img" not in gabung and gabung.count("&lt;img") == 6
+        assert "escape(u.nama_file_asli)" in inspect.getsource(pd_)
 
 
 def test_s5_sql_echo_mati_secara_bawaan():

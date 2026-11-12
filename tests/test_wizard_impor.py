@@ -208,7 +208,7 @@ def test_baris_identik_peringatan_dan_tombol_buang(keluaran):
     assert keluaran["IDENTIK_EXC"].startswith("0"), keluaran["IDENTIK_EXC"]
     assert ("10 baris identik dipertahankan karena tidak ada ID transaksi; periksa apakah ada unggahan ganda."
             in keluaran["IDENTIK_WARN"])
-    assert keluaran["IDENTIK_TOMBOL"] == "🧹 Buang 9 baris duplikat persis (unggahan ganda)"
+    assert keluaran["IDENTIK_TOMBOL"] == "Buang 9 baris duplikat persis"
     assert keluaran["BUANG_EXC"].startswith("0")
     assert "duplikat persis DIBUANG" in keluaran["BUANG_OK"]
     assert "Duplikat persis dibuang" in keluaran["BUANG_INFO"]
@@ -235,6 +235,6 @@ def test_id_berbagi_dipertahankan_dan_tombol_id_unik_opsional(keluaran):
 
 def test_halaman_analisis_menampilkan_kualitas(keluaran):
     assert keluaran["ANL_EXC"].startswith("0"), keluaran["ANL_EXC"]
-    assert "Laporan Kualitas Data" in keluaran["ANL_EXPANDER"]
+    assert "Laporan kualitas data" in keluaran["ANL_EXPANDER"]
     assert "kurang dari 24 bulan" in keluaran["ANL_WARN"]
     assert "Berkas tidak dapat dianalisis" not in keluaran["ANL_ERR"]

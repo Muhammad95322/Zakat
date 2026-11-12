@@ -1,5 +1,6 @@
 """Halaman Log Audit Jejak Keamanan dan Aktivitas Lembaga."""
 import streamlit as st
+from src.components.tema import judul_halaman
 import pandas as pd
 from src.database import get_db
 from src.auth.session import get_tenant_id, get_user_role
@@ -7,12 +8,12 @@ from src.models.audit_log import AuditLog
 from src.models.user import User
 
 def show():
-    st.title("📋 Log Audit & Jejak Aktivitas")
+    judul_halaman("Log audit", "100 aktivitas terakhir di lembaga Anda: siapa melakukan apa, kapan, dan dari mana.")
     tenant_id = get_tenant_id()
     role = get_user_role()
     
     if role not in ["admin", "super_admin"]:
-        st.error("❌ Anda tidak memiliki izin untuk melihat log audit.")
+        st.error("Anda tidak memiliki izin untuk melihat log audit.")
         return
 
     with get_db() as db:
@@ -41,7 +42,7 @@ def show():
     from src.ekspor_aman import ke_csv_aman
     csv_bytes = ke_csv_aman(df_logs)
     st.download_button(
-        "📥 Ekspor Log ke CSV",
+        "Unduh log (CSV)",
         data=csv_bytes,
         file_name="audit_logs.csv",
         mime="text/csv"

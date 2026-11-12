@@ -30,6 +30,7 @@ from src.charts import (
 from src.report_excel import generate_excel_report
 from src.report_pdf import generate_pdf_report
 from src.utils import format_rupiah, format_tanggal
+from src.components.tema import angka_id, judul_bagian, judul_halaman
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ logger = logging.getLogger(__name__)
 def show():
     tenant_id = get_tenant_id()
     if not tenant_id:
-        st.warning("Silakan pilih lembaga terlebih dahulu.")
+        st.warning("Pilih lembaga terlebih dahulu.")
         return
         
     with get_db() as db:
@@ -45,28 +46,31 @@ def show():
         uploads = get_uploads(db, tenant_id)
         
     if not uploads:
-        st.info("Belum ada data transaksi yang diunggah. Silakan buka menu 'Upload Data' untuk mengunggah file atau memuat data contoh.")
-        if st.button("📁 Buka Menu Upload"):
+        judul_halaman("Analisis & laporan")
+        st.info("Belum ada data untuk dianalisis. Unggah berkas transaksi atau muat data contoh.")
+        if st.button("Unggah berkas", type="primary", icon=":material/upload_file:"):
             st.session_state["page"] = "upload"
             st.rerun()
         return
         
-    # Pilih file yang dianalisis
+    judul_halaman("Analisis & laporan", tenant.nama if tenant else "")
+
+    # Pilih berkas + filter (semua di bagian atas halaman)
     upload_options = {u.id: f"{u.nama_file_asli} ({u.created_at.strftime('%d/%m/%Y')})" for u in uploads}
     default_id = st.session_state.get("selected_upload_id", uploads[0].id)
     if default_id not in upload_options:
         default_id = uploads[0].id
-        
-    c_sel, _ = st.columns([2, 1])
+
+    c_sel, c_f1, c_f2, c_f3 = st.columns([2.2, 1.2, 1.2, 1.2])
     with c_sel:
         selected_id = st.selectbox(
-            "Pilih Berkas Transaksi:",
+            "Berkas transaksi",
             options=list(upload_options.keys()),
             format_func=lambda x: upload_options[x],
             index=list(upload_options.keys()).index(default_id)
         )
     st.session_state["selected_upload_id"] = selected_id
-    
+
     # Ambil file
     with get_db() as db:
         upload_record = get_upload(db, selected_id, tenant_id)
@@ -89,12 +93,12 @@ def show():
     try:
         hasil = siapkan_data(file_bytes, upload_record.nama_file_asli, pemetaan_lembaga=pemetaan_lembaga)
     except DataFileError as e:
-        st.error(f"❌ Berkas tidak dapat dianalisis. {e}")
+        st.error(f"Berkas tidak dapat dianalisis. {e}")
         return
     except Exception as e:  # jangan tampilkan stack trace ke pengguna
         logger.exception("Gagal memproses berkas %s", upload_record.nama_file_asli)
         st.error(
-            "❌ Terjadi kesalahan tak terduga saat memproses berkas. "
+            "Terjadi kesalahan tak terduga saat memproses berkas. "
             "Pastikan berkas sesuai template, lalu coba lagi."
         )
         return
@@ -106,22 +110,17 @@ def show():
     kualitas = hasil["kualitas"]
     tampilkan_kualitas(kualitas, terbuka=bool(kualitas.get("peringatan")))
     
-    # Sidebar Filters Global
-    st.sidebar.markdown("### 🔍 Filter Analisis")
-    
-    # Filter Wilayah
-    wilayah_list = ["Semua"] + sorted(df_himpun_clean["kabupaten_kota"].dropna().unique().tolist()) if "kabupaten_kota" in df_himpun_clean.columns else ["Semua"]
-    pilih_wilayah = st.sidebar.selectbox("Kabupaten / Kota:", wilayah_list)
-    
-    # Filter Jenis Dana
-    dana_list = ["Semua"] + sorted(df_himpun_clean["jenis_dana"].dropna().unique().tolist()) if "jenis_dana" in df_himpun_clean.columns else ["Semua"]
-    pilih_dana = st.sidebar.selectbox("Jenis Dana:", dana_list)
-    
-    # Filter Kanal
-    kanal_list = ["Semua"] + sorted(df_himpun_clean["kanal"].dropna().unique().tolist()) if "kanal" in df_himpun_clean.columns else ["Semua"]
-    pilih_kanal = st.sidebar.selectbox("Kanal Donasi:", kanal_list)
-    
-    # Terapkan filter ke DataFrame analisis
+    # Filter global (di atas, sejajar dengan pemilih berkas)
+    def _opsi(kolom):
+        return ["Semua"] + sorted(df_himpun_clean[kolom].dropna().unique().tolist()) if kolom in df_himpun_clean.columns else ["Semua"]
+
+    with c_f1:
+        pilih_wilayah = st.selectbox("Kabupaten / kota", _opsi("kabupaten_kota"))
+    with c_f2:
+        pilih_dana = st.selectbox("Jenis dana", _opsi("jenis_dana"))
+    with c_f3:
+        pilih_kanal = st.selectbox("Kanal", _opsi("kanal"))
+
     df_filtered = df_himpun_clean.copy()
     if pilih_wilayah != "Semua":
         df_filtered = df_filtered[df_filtered["kabupaten_kota"] == pilih_wilayah]
@@ -139,142 +138,119 @@ def show():
     rfm_df, rfm_meta = segment_rfm(df_filtered)
     forecast_df, forecast_meta = forecast_donations(trend.get("monthly", pd.DataFrame()), 12)
 
-    # Navigasi Tabs
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-        "📊 Ringkasan & KPI",
-        "📈 Tren & Musiman",
-        "🥧 Komposisi",
-        "👥 Analisis Muzaki (RFM)",
-        "🤝 Penyaluran Dana",
-        "🔮 Proyeksi & Prediksi",
-        "📑 Laporan & Ekspor"
+        "Ringkasan", "Tren", "Komposisi", "Muzaki", "Penyaluran", "Proyeksi", "Laporan"
     ])
 
-    # TAB 1: Ringkasan & KPI
+    # RINGKASAN
     with tab1:
-        st.markdown(f"## Ringkasan Kinerja Lembaga: {tenant.nama if tenant else ''}")
-        
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total Penghimpunan", format_rupiah(stats["total_dana"], singkat=True))
-        c2.metric("Total Transaksi", f"{stats['total_transaksi']:,}")
-        c3.metric("Muzaki Terdaftar", f"{stats['muzaki_unik']:,}")
-        c4.metric("Rata-Rata Donasi", format_rupiah(stats["rata_rata"], singkat=True))
-        
-        st.info(f"💡 **Interpretasi Hasil:** {stats['interpretasi']}")
-        
+        c1.metric("Total penghimpunan", format_rupiah(stats["total_dana"], singkat=True))
+        c2.metric("Transaksi", angka_id(stats["total_transaksi"]))
+        c3.metric("Muzaki", angka_id(stats["muzaki_unik"]))
+        c4.metric("Rata-rata per donasi", format_rupiah(stats["rata_rata"], singkat=True))
+
+        st.info(stats["interpretasi"])
+
         if not trend["monthly"].empty:
             st.plotly_chart(chart_trend_bulanan(trend["monthly"]), use_container_width=True, key="chart_analisis_1")
-            
-        # Kualitas Data Box
-        with st.expander("🔍 Laporan Kualitas Data Hasil Pembersihan"):
-            st.write(f"- Baris Awal: **{summary_clean['awal']:,}** | Baris Bersih: **{summary_clean['akhir']:,}**")
-            st.write(f"- Duplikat Dihapus: **{summary_clean['duplikat']:,}** | Donasi Outlier: **{summary_clean['outlier']:,}**")
+
+        with st.expander("Hasil pembersihan data"):
+            st.write(f"Baris awal **{angka_id(summary_clean['awal'])}**, baris bersih **{angka_id(summary_clean['akhir'])}**. "
+                     f"Duplikat dihapus **{angka_id(summary_clean['duplikat'])}**, donasi outlier **{angka_id(summary_clean['outlier'])}**.")
             if log_himpun:
                 st.dataframe(pd.DataFrame(log_himpun), use_container_width=True)
 
-    # TAB 2: Tren & Musiman
+    # TREN
     with tab2:
-        st.markdown("### Analisis Tren Waktu & Pola Musiman")
-        st.info(f"📅 {trend['interpretasi']}")
+        judul_bagian("Tren dan pola musiman")
+        st.info(trend["interpretasi"])
         if not trend["monthly"].empty:
             st.plotly_chart(chart_trend_bulanan(trend["monthly"]), use_container_width=True, key="chart_analisis_2")
             st.dataframe(trend["monthly"].rename(columns={
-                "periode_str": "Bulan", "total_dana": "Total Dana (Rp)",
-                "jumlah_transaksi": "Transaksi", "mom_growth": "Pertumbuhan MoM (%)"
-            }), use_container_width=True)
+                "periode_str": "Bulan", "total_dana": "Total dana (Rp)",
+                "jumlah_transaksi": "Transaksi", "mom_growth": "Pertumbuhan bulanan (%)"
+            }), use_container_width=True, hide_index=True)
 
-    # TAB 3: Komposisi
+    # KOMPOSISI
     with tab3:
-        st.markdown("### Komposisi Donasi Berdasarkan Dimensi")
+        judul_bagian("Dari mana dana berasal", "Sebaran dana menurut jenis, kanal, dan wilayah.")
         col_d1, col_d2 = st.columns(2)
         with col_d1:
             if "jenis_dana" in comp:
-                st.plotly_chart(chart_komposisi_donut(comp["jenis_dana"], "jenis_dana", "Sebaran Jenis Dana ZIS"), use_container_width=True, key="chart_analisis_3")
+                st.plotly_chart(chart_komposisi_donut(comp["jenis_dana"], "jenis_dana", "Jenis dana"), use_container_width=True, key="chart_analisis_3")
         with col_d2:
             if "kanal" in comp:
-                st.plotly_chart(chart_komposisi_donut(comp["kanal"], "kanal", "Kanal Metode Pembayaran"), use_container_width=True, key="chart_analisis_4")
-                
+                st.plotly_chart(chart_komposisi_donut(comp["kanal"], "kanal", "Kanal pembayaran"), use_container_width=True, key="chart_analisis_4")
+
         if "kabupaten_kota" in comp:
             st.plotly_chart(chart_bar_wilayah(comp["kabupaten_kota"]), use_container_width=True, key="chart_analisis_5")
-            
-        if "penjelasan" in stat_test:
-            st.caption(f"🧪 **Uji Signifikansi Statistik:** {stat_test['penjelasan']}")
 
-    # TAB 4: Muzaki & RFM
+        if "penjelasan" in stat_test:
+            st.caption(f"Uji signifikansi statistik: {stat_test['penjelasan']}")
+
+    # MUZAKI
     with tab4:
-        st.markdown("### Segmentasi Perilaku Donatur (RFM) & Pemerataan Dana")
-        if not rfm_df.empty:
-            st.info(f"⚖️ {rfm_meta.get('interpretasi_gini', '')}")
-            
+        judul_bagian("Segmen donatur", "Pengelompokan muzaki menurut kebaruan, frekuensi, dan nilai donasi (RFM).")
+        if rfm_df.empty:
+            st.info("Data belum cukup untuk mengelompokkan muzaki.")
+        else:
+            st.info(rfm_meta.get("interpretasi_gini", ""))
+
             c_rfm1, c_rfm2 = st.columns([1, 1])
             with c_rfm1:
-                seg_counts = pd.DataFrame(list(rfm_meta["segmen_counts"].items()), columns=["Segmen", "Jumlah Muzaki"])
-                st.dataframe(seg_counts, use_container_width=True)
+                seg_counts = pd.DataFrame(list(rfm_meta["segmen_counts"].items()), columns=["Segmen", "Jumlah muzaki"])
+                st.dataframe(seg_counts, use_container_width=True, hide_index=True)
             with c_rfm2:
                 st.plotly_chart(chart_lorenz(rfm_meta["lorenz_x"], rfm_meta["lorenz_y"], rfm_meta["gini_index"]), use_container_width=True, key="chart_analisis_6")
-                
-            st.markdown("#### Daftar Donatur & Kategori")
-            st.dataframe(rfm_df[["nama", "terakhir_donasi", "frequency", "monetary", "segmen"]].rename(columns={
-                "nama": "Nama Muzaki", "terakhir_donasi": "Terakhir Donasi",
-                "frequency": "Frekuensi", "monetary": "Total Donasi (Rp)", "segmen": "Kategori Segmen"
-            }), use_container_width=True)
 
-    # TAB 5: Penyaluran Dana
+            judul_bagian("Daftar muzaki")
+            st.dataframe(rfm_df[["nama", "terakhir_donasi", "frequency", "monetary", "segmen"]].rename(columns={
+                "nama": "Nama muzaki", "terakhir_donasi": "Donasi terakhir",
+                "frequency": "Frekuensi", "monetary": "Total donasi (Rp)", "segmen": "Segmen"
+            }), use_container_width=True, hide_index=True)
+
+    # PENYALURAN
     with tab5:
-        st.markdown("### Tata Kelola Penyaluran & Kas Dana")
+        judul_bagian("Penyaluran dan kas dana")
         if dist_stats.get("status") == "ready":
             c_s1, c_s2, c_s3 = st.columns(3)
-            c_s1.metric("Dana Tersalurkan", format_rupiah(dist_stats["total_salur"], singkat=True))
-            c_s2.metric("Rasio Penyaluran", f"{dist_stats['rasio']}%")
-            c_s3.metric("Estimasi Saldo Kas", format_rupiah(dist_stats["saldo"], singkat=True))
-            
+            c_s1.metric("Dana tersalurkan", format_rupiah(dist_stats["total_salur"], singkat=True))
+            c_s2.metric("Rasio penyaluran", f"{str(dist_stats['rasio']).replace('.', ',')}%")
+            c_s3.metric("Perkiraan saldo kas", format_rupiah(dist_stats["saldo"], singkat=True))
+
             for w in dist_stats.get("warnings", []):
                 st.warning(w)
-                
+
             if not dist_stats["program_breakdown"].empty:
-                st.markdown("#### Alokasi per Program Penyaluran")
+                judul_bagian("Alokasi per program")
                 st.dataframe(dist_stats["program_breakdown"].rename(columns={
-                    "program": "Program", "total_dana": "Total Dana (Rp)", "penerima": "Penerima Manfaat"
-                }), use_container_width=True)
+                    "program": "Program", "total_dana": "Total dana (Rp)", "penerima": "Penerima manfaat"
+                }), use_container_width=True, hide_index=True)
         else:
             st.info(dist_stats.get("pesan", "Data penyaluran belum diunggah."))
 
-    # TAB 6: Proyeksi & Prediksi
+    # PROYEKSI
     with tab6:
-        st.markdown("### Proyeksi Penerimaan 12 Bulan ke Depan")
-        st.caption(
-            f"Metode: **{forecast_meta.get('metode')}** | Estimasi Galat (MAPE backtest bergulir): "
-            f"**{format_mape_lengkap(forecast_meta)}**"
-        )
+        judul_bagian("Proyeksi 12 bulan ke depan",
+                     "Perkiraan penerimaan berdasarkan pola historis. Pakai sebagai gambaran, bukan target.")
+        mape_teks = format_mape_lengkap(forecast_meta)
+        nilai_mape, _, rincian_mape = mape_teks.partition(" (")
+        m1, m2 = st.columns([1, 2])
+        m1.metric("Perkiraan galat (MAPE)", nilai_mape.replace(".", ","))
+        m2.markdown(
+            f"<div class='zi-meta' style='padding-top:1.1rem'>Metode: <b>{forecast_meta.get('metode')}</b>. "
+            "MAPE dihitung dari uji mundur bergulir: makin kecil, makin dekat proyeksi dengan kenyataan."
+            + (f"<br>Rincian: {rincian_mape.rstrip(')').replace('.', ',')}." if rincian_mape else "") + "</div>",
+            unsafe_allow_html=True)
         if forecast_meta.get("peringatan_keandalan"):
-            st.warning(f"⚠️ {forecast_meta['peringatan_keandalan']}")
+            st.warning(forecast_meta["peringatan_keandalan"])
         if forecast_meta.get("fallback"):
-            st.warning(f"⚠️ {forecast_meta.get('fallback_alasan')}")
-        if forecast_meta.get("catatan_stabilitas"):
-            st.info(f"⚖️ {forecast_meta['catatan_stabilitas']}")
+            st.warning(forecast_meta.get("fallback_alasan"))
         konsistensi = (forecast_meta.get("konsistensi_selang") or {}).get("peringatan")
         if konsistensi:
-            st.warning(f"⚠️ {konsistensi}")
-        if forecast_meta.get("koreksi_bias"):
-            st.info(f"🎯 {ringkasan_koreksi_bias(forecast_meta)}")
-        if forecast_meta.get("mape_keterangan"):
-            st.caption(forecast_meta["mape_keterangan"])
-        if forecast_meta.get("dasar_pemilihan"):
-            st.caption(f"Dasar pemilihan: {forecast_meta['dasar_pemilihan']}")
-        tabel_metode = tabel_perbandingan(forecast_meta, lengkap=True)
-        if not tabel_metode.empty:
-            with st.expander("📊 Perbandingan MAPE backtest bergulir semua metode", expanded=True):
-                st.dataframe(tabel_metode, use_container_width=True, hide_index=True)
-                st.caption(f"Catatan metode: {ringkasan_catatan_metode(forecast_meta)}")
-        tabel_bias = tabel_bias_koreksi(forecast_meta)
-        if not tabel_bias.empty:
-            with st.expander("🎯 Bias backtest & faktor koreksi per bulan proyeksi"):
-                st.dataframe(tabel_bias, use_container_width=True, hide_index=True)
-        # Catatan umum = bagian awal warning sebelum PERINGATAN/CATATAN (sudah ditampilkan terpisah)
-        catatan_umum = re.split(r"(?:PERINGATAN|CATATAN): ", forecast_meta.get("warning", ""))[0].strip()
-        if catatan_umum:
-            st.info(catatan_umum)
-            
+            st.warning(konsistensi)
+
         if not forecast_df.empty:
             st.plotly_chart(chart_forecasting(trend["monthly"], forecast_df, forecast_meta.get("selang_label"),
                                               (forecast_meta.get("koreksi_bias") or {}).get("dipakai", False)),
@@ -282,18 +258,41 @@ def show():
             if forecast_meta.get("selang_keterangan"):
                 st.caption(forecast_meta["selang_keterangan"])
             st.dataframe(forecast_df.rename(columns={
-                "periode": "Bulan", "proyeksi": "Proyeksi Donasi (Rp)",
-                "batas_bawah": "Batas Bawah (Rp)", "batas_atas": "Batas Atas (Rp)",
-                "status_selang": "Status Selang",
-                "proyeksi_tanpa_koreksi": "Proyeksi Tanpa Koreksi (Rp)",
-                "proyeksi_di_dalam_selang": "Proyeksi di Dalam Selang"
-            }), use_container_width=True)
+                "periode": "Bulan", "proyeksi": "Proyeksi donasi (Rp)",
+                "batas_bawah": "Batas bawah (Rp)", "batas_atas": "Batas atas (Rp)",
+                "status_selang": "Status selang",
+                "proyeksi_tanpa_koreksi": "Proyeksi tanpa koreksi (Rp)",
+                "proyeksi_di_dalam_selang": "Proyeksi di dalam selang"
+            }), use_container_width=True, hide_index=True)
 
-    # TAB 7: Laporan & Ekspor
+        # Rincian teknis dikumpulkan di satu tempat agar halaman tetap tenang
+        with st.expander("Rincian metode dan catatan"):
+            if forecast_meta.get("catatan_stabilitas"):
+                st.info(forecast_meta["catatan_stabilitas"])
+            if forecast_meta.get("koreksi_bias"):
+                st.info(ringkasan_koreksi_bias(forecast_meta))
+            if forecast_meta.get("mape_keterangan"):
+                st.caption(forecast_meta["mape_keterangan"])
+            if forecast_meta.get("dasar_pemilihan"):
+                st.caption(f"Dasar pemilihan: {forecast_meta['dasar_pemilihan']}")
+            tabel_metode = tabel_perbandingan(forecast_meta, lengkap=True)
+            if not tabel_metode.empty:
+                st.markdown("**Perbandingan MAPE semua metode**")
+                st.dataframe(tabel_metode, use_container_width=True, hide_index=True)
+                st.caption(f"Catatan metode: {ringkasan_catatan_metode(forecast_meta)}")
+            tabel_bias = tabel_bias_koreksi(forecast_meta)
+            if not tabel_bias.empty:
+                st.markdown("**Bias uji mundur dan faktor koreksi per bulan**")
+                st.dataframe(tabel_bias, use_container_width=True, hide_index=True)
+            # Catatan umum = bagian awal warning sebelum PERINGATAN/CATATAN (sudah ditampilkan terpisah)
+            catatan_umum = re.split(r"(?:PERINGATAN|CATATAN): ", forecast_meta.get("warning", ""))[0].strip()
+            if catatan_umum:
+                st.info(catatan_umum)
+
+    # LAPORAN
     with tab7:
-        st.markdown("### 📥 Unduh Laporan Resmi")
-        st.write("Unduh laporan siap presentasi untuk pimpinan, dewan pengawas syariah, atau donatur lembaga:")
-        
+        judul_bagian("Unduh laporan", "Siap dibawa ke rapat pimpinan, dewan pengawas syariah, atau donatur.")
+
         col_exp1, col_exp2 = st.columns(2)
         with col_exp1:
             pdf_bytes = generate_pdf_report(
@@ -308,14 +307,15 @@ def show():
                 kualitas=kualitas,
             )
             st.download_button(
-                "📑 Unduh Laporan Eksekutif PDF",
+                "Unduh laporan eksekutif (PDF)",
                 data=pdf_bytes,
                 file_name=f"Laporan_Eksekutif_ZIS_{tenant.slug if tenant else 'zakat'}.pdf",
                 mime="application/pdf",
                 type="primary",
+                icon=":material/picture_as_pdf:",
                 use_container_width=True
             )
-            
+
         with col_exp2:
             excel_bytes = generate_excel_report(
                 df_clean=df_filtered,
@@ -327,10 +327,10 @@ def show():
                 kualitas=kualitas,
             )
             st.download_button(
-                "📊 Unduh Laporan Lengkap Excel",
+                "Unduh data lengkap (Excel)",
                 data=excel_bytes,
                 file_name=f"Data_Analitik_ZIS_{tenant.slug if tenant else 'zakat'}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                icon=":material/table_view:",
                 use_container_width=True
             )
-

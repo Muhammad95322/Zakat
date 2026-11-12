@@ -6,6 +6,12 @@ from scipy import stats
 
 from src.utils import format_rupiah
 
+
+def _ribuan(n) -> str:
+    """Bilangan bulat dengan pemisah ribuan titik (gaya Indonesia)."""
+    return f"{int(n):,}".replace(",", ".")
+
+
 def get_summary_stats(df_himpun: pd.DataFrame) -> Dict[str, Any]:
     """Menghitung metrik ringkasan utama penghimpunan."""
     if df_himpun.empty or "jumlah" not in df_himpun.columns:
@@ -25,7 +31,7 @@ def get_summary_stats(df_himpun: pd.DataFrame) -> Dict[str, Any]:
     # Interpretasi awam
     interpretasi = (
         f"Lembaga telah menghimpun total {format_rupiah(total_dana, singkat=True)} "
-        f"dari {total_tx:,} transaksi oleh {muzaki_unik:,} donatur terdaftar. "
+        f"dari {_ribuan(total_tx)} transaksi oleh {_ribuan(muzaki_unik)} donatur terdaftar. "
         f"Sebagian besar donasi berpusat di nominal {format_rupiah(median)}, "
         f"dengan rata-rata donasi per transaksi sebesar {format_rupiah(rata_rata)}."
     )

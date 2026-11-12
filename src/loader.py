@@ -80,7 +80,11 @@ def pesan_kolom_hilang(df: pd.DataFrame, hilang: List[str], sheet_type: str = "P
         f"'{c}' (nama judul yang dikenali: {', '.join(COLUMN_SYNONYMS.get(c, [c])[:8])}, dst.)" for c in hilang
     )
     ada = ", ".join(repr(str(c)) for c in df.columns if c != KOLOM_LOKASI) or "(tidak ada)"
-    return (f"Sheet {sheet_type} tidak memiliki kolom wajib: {detail}. Kolom yang ditemukan: {ada}. "
+    from src.tanggal_impor import BULAN
+    n_bulan = sum(str(c).strip().lower().split(" ")[0] in BULAN for c in df.columns)
+    rekap = (" Berkas ini tampak berupa REKAP dengan bulan sebagai kolom; Zakat Insight membutuhkan data per "
+             "transaksi (satu baris per donasi dengan kolom tanggal dan nominal)." if n_bulan >= 3 else "")
+    return (f"Sheet {sheet_type} tidak memiliki kolom wajib: {detail}. Kolom yang ditemukan: {ada}.{rekap} "
             "Pilih kolomnya lewat formulir pemetaan kolom saat mengunggah, ubah judul kolom, "
             "atau gunakan template Excel.")
 

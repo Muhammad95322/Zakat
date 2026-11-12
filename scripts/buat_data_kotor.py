@@ -604,6 +604,13 @@ def semua_variasi(besar: bool = True) -> List[Variasi]:
     V.append(_v("t08_xls_lama_atau_bersandi", "Kontainer OLE2 (.xls lama / Excel bersandi)", "tolak",
                 "t08_xls_lama_atau_bersandi.xlsx", b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 600, ditolak=True,
                 harus_tolak_karena=".xls"))
+    piv = H.assign(b=H["tanggal"].dt.month).pivot_table(index="jenis_dana", columns="b", values="jumlah",
+                                                         aggfunc="sum", fill_value=0)
+    baris = [["Jenis Dana"] + [BULAN_ID[m] for m in piv.columns]] + \
+            [[j] + [float(x) for x in r] for j, r in zip(piv.index, piv.values)]
+    V.append(_v("t09_rekap_pivot_bulan", "Rekap pivot: baris jenis dana, kolom Januari..Desember (bukan transaksi)",
+                "tolak", "t09_rekap_pivot_bulan.xlsx", tulis_xlsx([("Rekap", baris)]), ditolak=True,
+                harus_tolak_karena="tanggal"))
     return V
 
 

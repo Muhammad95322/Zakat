@@ -22,4 +22,6 @@ alembic>=1.13.0
 bcrypt>=4.1.0
 pyjwt>=2.8.0
 python-dotenv>=1.0.0
+# Penyimpanan objek kompatibel S3 untuk unggahan di produksi (PENYIMPANAN=s3)
+boto3>=1.34
 pydantic>=2.7.0

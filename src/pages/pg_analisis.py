@@ -66,12 +66,18 @@ def show():
     with get_db() as db:
         upload_record = get_upload(db, selected_id, tenant_id)
         
-    if not upload_record or not os.path.exists(upload_record.storage_path):
+    from src.services.upload_service import baca_berkas_unggahan
+    try:
+        file_bytes = baca_berkas_unggahan(upload_record) if upload_record else None
+    except FileNotFoundError:
+        file_bytes = None
+    except Exception:
+        logger.exception("Gagal membaca berkas dari penyimpanan")
+        st.error("Penyimpanan berkas sedang tidak dapat diakses. Coba lagi beberapa saat lagi.")
+        return
+    if file_bytes is None:
         st.error("File fisik tidak ditemukan pada media penyimpanan.")
         return
-        
-    with open(upload_record.storage_path, "rb") as f:
-        file_bytes = f.read()
         
     # Muat, validasi, dan bersihkan data; tampilkan pesan ramah jika berkas bermasalah
     try:

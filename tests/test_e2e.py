@@ -186,7 +186,8 @@ with get_db() as db:
     up, msg = simpan_upload(db, t.id, u.id, buf.getvalue(), "contoh.xlsx")
     assert up is not None, msg
     if os.getenv("RUSAKKAN"):
-        open(up.storage_path, "wb").write(b"PK\x03\x04rusak")
+        from src.penyimpanan import penyimpanan
+        penyimpanan().simpan(up.storage_path, b"PK\x03\x04rusak")
     tid, uid, upid = t.id, u.id, up.id
 from streamlit.testing.v1 import AppTest
 at = AppTest.from_file(os.path.join(os.environ["ROOT"], "app.py"), default_timeout=120)

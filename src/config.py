@@ -86,7 +86,17 @@ class Settings:
     EMAIL_SMTP_CA_FILE: str = os.getenv("EMAIL_SMTP_CA_FILE", "")
     EMAIL_FROM: str = os.getenv("EMAIL_FROM", DEFAULT_EMAIL_FROM)
 
-    # Storage
+    # Storage unggahan: "lokal" (UPLOAD_DIR) atau "s3" (penyimpanan objek kompatibel S3; produksi Render)
+    PENYIMPANAN: str = os.getenv("PENYIMPANAN", "lokal").strip().lower()
+    S3_BUCKET: str = os.getenv("S3_BUCKET", "")
+    S3_ENDPOINT_URL: str = os.getenv("S3_ENDPOINT_URL", "")  # kosong = AWS; isi untuk R2/B2/MinIO
+    S3_REGION: str = os.getenv("S3_REGION", "")
+    S3_ACCESS_KEY_ID: str = os.getenv("S3_ACCESS_KEY_ID", "")
+    S3_SECRET_ACCESS_KEY: str = os.getenv("S3_SECRET_ACCESS_KEY", "")
+    S3_AWALAN: str = os.getenv("S3_AWALAN", "unggahan")
+    S3_SSE: str = os.getenv("S3_SSE", "")  # mis. AES256 (AWS); kosong bila penyedia mengenkripsi otomatis
+    # Hari penyimpanan berkas unggahan sebelum dihapus otomatis (0 = sampai dihapus admin)
+    RETENSI_UNGGAHAN_HARI: int = int(os.getenv("RETENSI_UNGGAHAN_HARI", "0"))
     UPLOAD_DIR: Path = Path(os.getenv("UPLOAD_DIR", str(BASE_DIR / "uploads")))
     MAX_UPLOAD_SIZE_MB: int = int(os.getenv("MAX_UPLOAD_SIZE_MB", "50"))
     # Batas isi berkas (cegah bom zip / DoS memori)

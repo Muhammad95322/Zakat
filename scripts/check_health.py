@@ -26,11 +26,10 @@ def check():
     except Exception as e:
         checks.append(("Konfigurasi Lingkungan", False, str(e)))
         
-    # 3. Cek Folder Storage
+    # 3. Cek penyimpanan unggahan (folder lokal dapat ditulis / bucket S3 dapat diakses)
     try:
-        from src.config import settings
-        settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-        checks.append(("Storage Unggahan", True, str(settings.UPLOAD_DIR)))
+        from src.penyimpanan import penyimpanan
+        checks.append(("Storage Unggahan", True, penyimpanan().periksa()))
     except Exception as e:
         checks.append(("Storage Unggahan", False, str(e)))
         

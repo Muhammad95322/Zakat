@@ -14,6 +14,7 @@ from src.pemetaan import BIDANG_WIZARD
 from src.pipeline import periksa_berkas, siapkan_data
 from src.sample_data import generate_sample_data
 from src.services.pemetaan_service import daftar_pemetaan, simpan_pemetaan
+from src.services.unggahan_kembar import cari_unggahan_kembar
 from src.services.tenant_service import get_tenant_stats
 from src.services.upload_service import get_uploads, hapus_upload, simpan_upload
 
@@ -40,6 +41,9 @@ def _simpan(isi: bytes, nama: str, tenant_id: str, user: dict, pemetaan=None, be
         st.error(f"❌ {PESAN_TAK_TERDUGA}")
         return
     with get_db() as db:
+        kembar = cari_unggahan_kembar(db, tenant_id, isi)
+        info_kembar = ({"nama": kembar.nama_file_asli, "waktu": kembar.created_at.strftime("%d/%m/%Y %H:%M")}
+                       if kembar is not None else None)
         res, msg = simpan_upload(db, tenant_id, user["id"], isi, nama, hasil_siap=hasil)
         if not res:
             st.error(f"❌ {msg}")
@@ -47,10 +51,50 @@ def _simpan(isi: bytes, nama: str, tenant_id: str, user: dict, pemetaan=None, be
         if pemetaan:
             simpan_pemetaan(db, tenant_id, user["id"], kolom or [], pemetaan)
     st.session_state.pop(KUNCI_TERTUNDA, None)
-    st.session_state[KUNCI_KUALITAS] = {"nama": nama, "kualitas": hasil["kualitas"],
+    st.session_state[KUNCI_KUALITAS] = {"nama": nama, "isi": isi, "kualitas": hasil["kualitas"],
+                                        "kolom": hasil["kolom"], "pemetaan": hasil["pemetaan"]["pemetaan"],
+                                        "kembar": info_kembar,
                                         "pesan": msg + (" Pemetaan kolom disimpan untuk unggahan berikutnya."
                                                         if pemetaan else "")}
     st.rerun()
+
+
+def _atur_duplikat(tenant_id: str, user: dict, terakhir: dict, buang: bool) -> None:
+    """Simpan pilihan buang/pertahankan duplikat persis bersama pemetaan kolom, lalu hitung ulang laporan."""
+    with get_db() as db:
+        simpan_pemetaan(db, tenant_id, user["id"], terakhir["kolom"], terakhir["pemetaan"],
+                        opsi={"buang_duplikat_persis": buang})
+        lembaga = daftar_pemetaan(db, tenant_id)
+    try:
+        hasil = siapkan_data(terakhir["isi"], terakhir["nama"], pemetaan_lembaga=lembaga)
+        terakhir["kualitas"] = hasil["kualitas"]
+    except Exception:
+        logger.exception("Gagal menghitung ulang laporan kualitas")
+    terakhir["pesan"] = ("Pilihan disimpan: duplikat persis DIBUANG untuk berkas dengan susunan kolom ini."
+                         if buang else "Pilihan disimpan: baris identik DIPERTAHANKAN.")
+    st.rerun()
+
+
+def _tampilkan_duplikat(tenant_id: str, user: dict, terakhir: dict) -> None:
+    lap = terakhir["kualitas"]
+    if terakhir.get("kembar"):
+        k = terakhir["kembar"]
+        st.warning(f"⚠️ Berkas ini identik byte demi byte dengan unggahan '{k['nama']}' ({k['waktu']}). "
+                   "Kemungkinan unggahan ganda; hapus salah satunya di Riwayat bila tidak disengaja.")
+    if lap.get("kolom_id_transaksi"):
+        return
+    if lap.get("identik_dipertahankan"):
+        st.warning(f"⚠️ {lap['identik_dipertahankan']} baris identik dipertahankan karena tidak ada ID transaksi; "
+                   "periksa apakah ada unggahan ganda.")
+        st.caption("Dua donasi yang sama pada hari yang sama bisa saja sah. Buang hanya bila Anda yakin baris "
+                   "itu terunggah dua kali. Pilihan ini disimpan bersama pemetaan kolom lembaga.")
+        if st.button(f"🧹 Buang {lap.get('salinan_identik', 0)} baris duplikat persis (unggahan ganda)",
+                     key="btn_buang_duplikat"):
+            _atur_duplikat(tenant_id, user, terakhir, True)
+    elif lap.get("buang_duplikat_persis"):
+        st.info("Duplikat persis dibuang untuk berkas dengan susunan kolom ini (pilihan lembaga).")
+        if st.button("↩️ Pertahankan baris identik", key="btn_pertahankan_duplikat"):
+            _atur_duplikat(tenant_id, user, terakhir, False)
 
 
 def _proses_unggahan(isi: bytes, nama: str, tenant_id: str, user: dict) -> None:
@@ -156,6 +200,7 @@ def show():
             terakhir = st.session_state.get(KUNCI_KUALITAS)
             if terakhir:
                 st.success(f"✅ {terakhir['nama']}: {terakhir['pesan']}")
+                _tampilkan_duplikat(tenant_id, user, terakhir)
                 tampilkan_kualitas(terakhir["kualitas"], "📋 Laporan Kualitas Data berkas terakhir", terbuka=True)
 
         with col_helper:

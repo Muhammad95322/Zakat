@@ -26,7 +26,8 @@ def parse_tanggal_fleksibel(val: Any) -> Optional[datetime]:
 ALASAN = {
     "kosong": ("Hapus Baris Kosong", "baris tanpa isi"),
     "total": ("Hapus Baris Total/Subtotal", "baris total/subtotal (bukan transaksi)"),
-    "duplikat": ("Hapus Duplikat", "duplikat persis baris lain"),
+    "duplikat": ("Hapus Duplikat", "duplikat persis baris lain (dipilih pengguna: unggahan ganda)"),
+    "duplikat_id": ("Hapus Duplikat ID Transaksi", "ID transaksi sama dengan baris lain"),
     "jumlah_kosong": ("Hapus Nominal Invalid (kosong)", "nominal kosong"),
     "jumlah_teks": ("Hapus Nominal Invalid (bukan angka)", "nominal bukan angka"),
     "jumlah_nol": ("Hapus Nominal Nol", "nominal Rp 0"),
@@ -42,6 +43,35 @@ _RE_TOTAL = re.compile(
 )
 
 _MAKS_CONTOH = 5
+
+_RE_HP = re.compile(r"^\s*(\+?62|0)8")
+_JUDUL_BUKAN_ID = {"hp", "telp", "telepon", "wa", "whatsapp", "rekening", "rek", "nik", "ktp", "npwp", "email",
+                   "alamat", "nama", "kontak", "phone"}
+
+
+def deteksi_kolom_id_isi(df: pd.DataFrame, kolom: List[str]) -> Optional[str]:
+    """Kolom non-standar yang isinya tampak seperti nomor transaksi: terisi >= 95% baris, nilai unik di
+    >= 90% baris (sisa yang kembar adalah duplikat yang dicari), memuat angka, dan bukan HP/rekening/nama."""
+    from src.pemetaan import BIDANG, normalisasi_judul
+    n = len(df)
+    if n < 5:
+        return None
+    for c in kolom:
+        if c in BIDANG or str(c).endswith(" (asli)"):
+            continue
+        if set(normalisasi_judul(c).split()) & _JUDUL_BUKAN_ID:
+            continue
+        s = df[c].dropna().astype(str).str.strip()
+        s = s[s != ""]
+        if len(s) < 0.95 * n:
+            continue
+        if not s.str.contains(r"\d").mean() >= 0.95 or s.str.len().min() < 3:
+            continue
+        if s.map(lambda v: bool(_RE_HP.match(v))).mean() > 0.5:
+            continue
+        if s.nunique() / len(s) >= 0.9:
+            return c
+    return None
 
 _RE_RIBU = re.compile(r"\bribu(an)?\b|\brb\b|\(\s*(rp\.?\s*)?000\s*\)|\brp\.?\s*000\b|x\s*1\.?000\b|\brp\s*k\b")
 _RE_JUTA = re.compile(r"\bjuta(an)?\b|\bjt\b|x\s*1\.?000\.?000\b")
@@ -67,12 +97,15 @@ def clean_data(
     sheet_type: str = "Penghimpunan",
     sudah_dipetakan: bool = False,
     nama_asli: Optional[Dict[str, str]] = None,
+    buang_duplikat_persis: bool = False,
 ) -> Tuple[pd.DataFrame, List[Dict[str, Any]], Dict[str, Any]]:
     """Membersihkan DataFrame data transaksi ZIS.
 
     Args:
         df: tabel mentah. Bila ``sudah_dipetakan`` False, kolom dipetakan otomatis dari judulnya.
         nama_asli: {kolom standar: judul asli di berkas} untuk pesan yang menunjuk kolom asli.
+        buang_duplikat_persis: bila berkas TIDAK punya kolom ID transaksi, baris identik dipertahankan
+            (dua donasi sama di hari yang sama itu wajar) kecuali pengguna memilih membuangnya.
 
     Returns:
         (df_clean, cleaning_log, summary). ``summary`` berisi jumlah per alasan, contoh baris,
@@ -130,10 +163,32 @@ def clean_data(
         tanpa_tanggal = tanggal.isna() if tanggal is not None else pd.Series(True, index=df.index)
         tandai(label_total & tanpa_tanggal, "total")
 
-    # 4. duplikat persis (di semua kolom data, tanpa memandang posisi baris)
-    if data_cols and len(df):
-        tandai(df[data_cols].astype(str).duplicated(), "duplikat")
-    duplikat_count = int((alasan == "duplikat").sum())
+    # 4. duplikat: berdasarkan ID transaksi bila ada; tanpa ID, baris identik DIPERTAHANKAN (dihitung)
+    kolom_id, sumber_id = None, None
+    if "id_transaksi" in df.columns:
+        kolom_id, sumber_id = "id_transaksi", "judul"
+    else:
+        kolom_id = deteksi_kolom_id_isi(df, data_cols)
+        sumber_id = "isi" if kolom_id else None
+    identik, salinan, seluruh_ganda, contoh_identik = 0, 0, False, []
+    if kolom_id is not None and len(df):
+        kunci_id = df[kolom_id].map(lambda v: None if v is None or (isinstance(v, float) and v != v)
+                                    else str(v).strip().upper() or None)
+        tandai(kunci_id.notna() & kunci_id.duplicated(), "duplikat_id", df[kolom_id])
+    elif data_cols and len(df):
+        teks = df[data_cols].astype(str)
+        dup = teks.duplicated() & alasan.isna()
+        salinan = int(dup.sum())
+        # baris yang punya kembaran persis (termasuk kemunculan pertamanya): 10 donasi identik -> 10
+        identik = int((teks.duplicated(keep=False) & alasan.isna()).sum()) if salinan else 0
+        if identik:
+            contoh_identik = [df.at[i, KOLOM_LOKASI] for i in dup[dup].index[:_MAKS_CONTOH]]
+            ukuran = teks[alasan.isna()].value_counts()
+            seluruh_ganda = bool(len(ukuran) and (ukuran == 2).all())
+        if buang_duplikat_persis:
+            tandai(dup, "duplikat")
+            identik, salinan = 0, 0
+    duplikat_count = int(alasan.isin(["duplikat", "duplikat_id"]).sum())
 
     # 5. nominal
     if jumlah is not None:
@@ -176,7 +231,9 @@ def clean_data(
             ket = (f"Dihapus {n} baris: {label} di kolom '{kol('tanggal')}'. "
                    f"Format yang diterima: {FORMAT_DITERIMA}.")
         elif kunci == "duplikat":
-            ket = f"Dihapus {n} baris transaksi yang persis sama di semua kolom."
+            ket = f"Dihapus {n} baris yang persis sama di semua kolom (pilihan pengguna: unggahan ganda)."
+        elif kunci == "duplikat_id":
+            ket = f"Dihapus {n} baris dengan ID transaksi yang sama di kolom '{kol(kolom_id) if kolom_id == 'id_transaksi' else kolom_id}'."
         else:
             ket = f"Dihapus {n} baris: {label}."
         if contoh.get(kunci):
@@ -237,5 +294,11 @@ def clean_data(
         "info_tanggal": info_tanggal,
         "nama_asli": nama_asli,
         "satuan_nominal": satuan,
+        "identik_dipertahankan": identik,
+        "salinan_identik": salinan,  # baris yang akan terbuang bila pengguna memilih membuang duplikat persis
+        "contoh_identik": contoh_identik,
+        "seluruh_ganda": seluruh_ganda,
+        "kolom_id_transaksi": (kol("id_transaksi") if kolom_id == "id_transaksi" else kolom_id),
+        "sumber_id_transaksi": sumber_id,
     }
     return df_clean, cleaning_log, summary

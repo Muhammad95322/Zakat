@@ -38,7 +38,16 @@ BIDANG: Dict[str, Tuple[List[str], List[str]]] = {
         "id muzaki", "id donatur", "muzaki id", "donatur id", "no anggota", "id anggota", "kode muzaki",
         "kode donatur", "no muzaki", "nomor muzaki", "no donatur", "nomor donatur", "npwz", "id muzakki",
         "kode muzakki", "id",
-    ], ["transaksi", "trx", "kwitansi"]),
+    ], ["transaksi", "trx", "kwitansi", "kuitansi", "bukti", "referensi", "ref", "nota", "invoice", "faktur"]),
+    # nomor unik per transaksi: dasar pembuangan duplikat (tanpa kolom ini, baris identik dipertahankan)
+    "id_transaksi": ([
+        "id transaksi", "no transaksi", "nomor transaksi", "kode transaksi", "trx id", "id trx", "no trx",
+        "transaction id", "no bukti", "nomor bukti", "bukti", "no kwitansi", "nomor kwitansi", "kwitansi",
+        "no kuitansi", "kuitansi", "no referensi", "nomor referensi", "referensi", "no ref", "ref",
+        "reference", "no invoice", "invoice", "no faktur", "faktur", "no nota", "nomor nota", "nota",
+        "receipt", "no resi", "nomor setoran", "no setoran",
+    ], ["donatur", "muzaki", "muzakki", "anggota", "rekening", "hp", "telepon", "tanggal", "tgl", "jumlah",
+        "nominal"]),
     "nama_muzaki": ([
         "nama muzaki", "nama donatur", "nama", "donatur", "muzaki", "nama lengkap", "muzakki", "nama muzakki",
         "penyetor", "nama penyetor", "atas nama", "donor", "nama donor",
@@ -88,9 +97,9 @@ BIDANG: Dict[str, Tuple[List[str], List[str]]] = {
 }
 
 BIDANG_HIMPUN = ["tanggal", "jumlah", "id_muzaki", "nama_muzaki", "jenis_dana", "kanal", "kabupaten_kota",
-                 "kampanye"]
+                 "kampanye", "id_transaksi"]
 BIDANG_SALUR = ["tanggal", "jumlah", "program", "asnaf", "jenis_dana_sumber", "kabupaten_kota",
-                "jumlah_penerima"]
+                "jumlah_penerima", "id_transaksi"]
 BIDANG_GABUNGAN = ["arus", "masuk", "keluar"]
 WAJIB = ["tanggal", "jumlah"]
 
@@ -107,6 +116,7 @@ BIDANG_WIZARD = {
 
 LABEL_BIDANG = {
     "tanggal": "tanggal", "jumlah": "jumlah", "id_muzaki": "ID donatur", "nama_muzaki": "nama donatur",
+    "id_transaksi": "ID transaksi",
     "jenis_dana": "jenis dana", "kanal": "kanal", "kabupaten_kota": "wilayah", "kampanye": "kampanye",
     "program": "program", "asnaf": "asnaf", "jenis_dana_sumber": "sumber dana",
     "jumlah_penerima": "jumlah penerima", "arus": "jenis transaksi (masuk/keluar)",
@@ -206,13 +216,14 @@ class HasilDeteksi:
     alasan: List[str] = field(default_factory=list)
     keyakinan: Dict[str, float] = field(default_factory=dict)
     sumber: Dict[str, str] = field(default_factory=dict)  # bidang -> "judul" | "isi" | "tersimpan" | "pengguna"
+    opsi: Dict[str, Any] = field(default_factory=dict)    # pilihan lembaga, mis. buang_duplikat_persis
 
     def kolom_wajib_hilang(self) -> List[str]:
         return [b for b in WAJIB if b not in self.pemetaan]
 
     def sebagai_dict(self) -> Dict[str, Any]:
         return {"pemetaan": dict(self.pemetaan), "status": self.status, "alasan": list(self.alasan),
-                "keyakinan": dict(self.keyakinan), "sumber": dict(self.sumber)}
+                "keyakinan": dict(self.keyakinan), "sumber": dict(self.sumber), "opsi": dict(self.opsi)}
 
 
 def _kolom_data(df: pd.DataFrame) -> List[str]:
@@ -327,7 +338,8 @@ def terapkan_tersimpan(df: pd.DataFrame, tersimpan: Iterable[Dict[str, Any]]) ->
             continue
         return HasilDeteksi(pemetaan=pem, status="tersimpan",
                             alasan=["Memakai pemetaan kolom yang pernah dikonfirmasi lembaga ini."],
-                            keyakinan={b: 1.0 for b in pem}, sumber={b: "tersimpan" for b in pem})
+                            keyakinan={b: 1.0 for b in pem}, sumber={b: "tersimpan" for b in pem},
+                            opsi=dict(p.get("opsi") or {}))
     return None
 
 

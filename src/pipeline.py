@@ -176,12 +176,15 @@ def siapkan_data(
     pemetaan: Optional[Dict[str, Optional[str]]] = None,
     pemetaan_lembaga: Optional[Iterable[Dict[str, Any]]] = None,
     berkas: Optional[BerkasTerbaca] = None,
+    buang_duplikat_persis: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Muat berkas, petakan kolom, bersihkan, dan susun laporan kualitas data.
 
     Args:
         pemetaan: pemetaan pilihan pengguna {bidang standar: judul kolom asli} (dari wizard).
         pemetaan_lembaga: daftar pemetaan tersimpan lembaga (lihat ``pemetaan_service``).
+        buang_duplikat_persis: bila berkas tanpa kolom ID transaksi, buang baris identik (unggahan ganda).
+            None = ikuti pilihan yang tersimpan bersama pemetaan lembaga (bawaan: dipertahankan).
         berkas: hasil :func:`baca_berkas` untuk berkas yang sama (mis. dari ``periksa_berkas``) agar
             berkas besar tidak dibaca dua kali.
 
@@ -203,7 +206,11 @@ def siapkan_data(
             f"Tidak ada baris penghimpunan (masuk) di berkas '{filename}'. Kolom "
             f"'{det.pemetaan.get('arus') or det.pemetaan.get('masuk')}' tidak berisi transaksi masuk yang dikenali.")
     df_mapped, nama_asli = terapkan_pemetaan(df_h, ph)
+    if buang_duplikat_persis is None:
+        buang_duplikat_persis = bool(det.opsi.get("buang_duplikat_persis"))
+    det.opsi["buang_duplikat_persis"] = bool(buang_duplikat_persis)
     df_himpun, log_himpun, summary = clean_data(df_mapped, "Penghimpunan", sudah_dipetakan=True,
+                                                buang_duplikat_persis=buang_duplikat_persis,
                                                 nama_asli=nama_asli)
     if df_himpun.empty:
         raise DataFileError(_pesan_tanpa_baris_valid(summary, nama_asli))
@@ -241,6 +248,7 @@ def siapkan_data(
         "log_salur": log_salur,
         "kualitas": kualitas,
         "pemetaan": det_dict,
+        "kolom": [c for c in raw.columns if c != KOLOM_LOKASI],
         "info": berkas.info,
     }
 

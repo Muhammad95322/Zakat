@@ -580,7 +580,36 @@ def semua_variasi(besar: bool = True) -> List[Variasi]:
     V.append(_v("v53_total_rumus", "Baris 'Total' berisi rumus =SUM() tanpa nilai tersimpan", "sulit",
                 "v53_total_rumus.xlsx", tulis_xlsx([("Penghimpunan", baris)]), harapan(H), pemetaan_benar(k)))
 
-    # --- 9. yang HARUS ditolak dengan pesan jelas ---
+    # --- 9. duplikat: tanpa ID dipertahankan; dengan ID dibuang; unggahan ganda utuh terdeteksi ---
+    k = kolom_standar()
+    sama = H.iloc[[7] * 10]                                   # 10 donasi identik (orang, hari, nominal sama)
+    truth = pd.concat([H, sama.iloc[1:]], ignore_index=True)  # baris ke-7 + 9 salinan, semua sah
+    V.append(_v("v54_identik_tanpa_id", "10 donasi identik tanpa kolom ID transaksi (semua dipertahankan)",
+                "duplikat", "v54_identik_tanpa_id.xlsx",
+                tulis_xlsx([("Penghimpunan", [judul(k)] + render(truth, k, rng))]),
+                {**harapan(truth), "identik": 10}, pemetaan_benar(k)))
+    kid = [("No. Kwitansi", "no_kw", ident)] + kolom_standar()
+    HK2 = H.assign(no_kw=[f"KW-{i:05d}" for i in range(len(H))])
+    salinan = HK2.iloc[[3, 3, 50, 120, 120]]                  # kwitansi sama tercatat ulang
+    data = pd.concat([HK2, salinan], ignore_index=True)
+    V.append(_v("v55_duplikat_id_kwitansi", "Kolom 'No. Kwitansi'; 5 baris dengan nomor kwitansi kembar",
+                "duplikat", "v55_duplikat_id_kwitansi.csv",
+                tulis_csv([judul(kid)] + render(data, kid, rng), ";"),
+                {**harapan(H), "duplikat_id": 5}, pemetaan_benar(kid)))
+    kid = kolom_standar() + [("Kode Sistem", "no_kw", ident)]
+    data = pd.concat([HK2, HK2.iloc[[10, 11]]], ignore_index=True)
+    V.append(_v("v56_id_dari_isi", "Kolom ID berjudul tak lazim ('Kode Sistem'), dikenali dari isinya; 2 kembar",
+                "duplikat", "v56_id_dari_isi.xlsx",
+                tulis_xlsx([("Penghimpunan", [judul(kid)] + render(data, kid, rng))]),
+                {**harapan(H), "duplikat_id": 2}, pemetaan_benar(kid)))
+    k = kolom_standar()
+    ganda = pd.concat([H, H], ignore_index=True)              # isi berkas ditempel dua kali, tanpa ID
+    V.append(_v("v57_unggahan_ganda_utuh", "Seluruh isi berkas tertempel dua kali tanpa ID (peringatan)",
+                "duplikat", "v57_unggahan_ganda_utuh.xlsx",
+                tulis_xlsx([("Penghimpunan", [judul(k)] + render(ganda, k, rng))]),
+                {**harapan(ganda), "identik": len(ganda), "seluruh_ganda": True}, pemetaan_benar(k)))
+
+    # --- 10. yang HARUS ditolak dengan pesan jelas ---
     V.append(_v("t01_berkas_kosong", "Berkas 0 byte", "tolak", "t01_berkas_kosong.xlsx", b"", ditolak=True,
                 harus_tolak_karena="kosong"))
     V.append(_v("t02_excel_rusak", "Berkas .xlsx rusak (bukan zip valid)", "tolak", "t02_excel_rusak.xlsx",

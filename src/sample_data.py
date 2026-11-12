@@ -93,6 +93,8 @@ def generate_sample_data(n_penghimpunan: int = 5000, n_penyaluran: int = 1500) -
             nominal *= random.uniform(1.2, 1.8)  # nosec B311
             
         rows_penghimpunan.append({
+            # nomor kuitansi unik per transaksi: salinan duplikat di bawah membawa nomor yang sama
+            "no_transaksi": f"TRX-{len(rows_penghimpunan) + 1:06d}",
             "tanggal": tgl.strftime("%Y-%m-%d"),
             "id_muzaki": mzk["id"],
             "nama_muzaki": mzk["nama"],
@@ -172,6 +174,7 @@ def save_sample_and_template_files():
     # 2. Simpan template kosong dengan 1 baris contoh
     tmpl_path = tmpl_dir / "template_zakat.xlsx"
     df_h_tmpl = pd.DataFrame([{
+        "no_transaksi": "KW-2024-0001",  # nomor kuitansi/bukti unik: dasar pembuangan duplikat
         "tanggal": "2024-01-15",
         "id_muzaki": "MZK-0001",
         "nama_muzaki": "H. Sulaiman",

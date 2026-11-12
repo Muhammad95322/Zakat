@@ -65,6 +65,17 @@ def cocokkan(hasil: Dict[str, Any], h: Dict[str, Any]) -> List[str]:
                 beda = {x: (aktual.get(x), h[k].get(x)) for x in set(aktual) | set(h[k])
                         if aktual.get(x) != h[k].get(x)}
                 salah.append(f"{k} beda (aktual, harapan): {dict(list(beda.items())[:4])}")
+    ringkas = hasil["summary_himpun"]
+    if "identik" in h:
+        if ringkas.get("identik_dipertahankan") != h["identik"]:
+            salah.append(f"identik {ringkas.get('identik_dipertahankan')} != {h['identik']}")
+        if not any("baris identik dipertahankan karena tidak ada ID transaksi" in w
+                   for w in hasil["kualitas"]["peringatan"]):
+            salah.append("peringatan baris identik tidak muncul")
+    if "duplikat_id" in h and (ringkas.get("alasan") or {}).get("duplikat_id", 0) != h["duplikat_id"]:
+        salah.append(f"duplikat ID dibuang {(ringkas.get('alasan') or {}).get('duplikat_id', 0)} != {h['duplikat_id']}")
+    if h.get("seluruh_ganda") and not ringkas.get("seluruh_ganda"):
+        salah.append("unggahan ganda utuh tidak terdeteksi")
     if "salur_n" in h:
         ds = hasil["df_salur"]
         if len(ds) != h["salur_n"]:

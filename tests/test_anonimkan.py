@@ -278,3 +278,35 @@ def test_ci_menjalankan_pemeriksaan_di_job_keamanan():
     wf = (AKAR / ".github" / "workflows" / "tests.yml").read_text()
     bagian = wf.split("\n  keamanan:", 1)[1]
     assert "python scripts/cek_berkas_data.py" in bagian
+
+
+# --- celah: nama orang di kolom teks berjudul netral yang TIDAK ada di kolom nama -------------------
+def test_sapaan_gelar_di_kolom_netral_disensor(tmp_path, kunci, capsys):
+    p = tmp_path / "sumber.csv"
+    sumber = ["dari Pak Wahyudi Pratama", "Bu Wati lewat Kantor", "kotak amal masjid", "titipan Hj. Maryam",
+              "Ustadzah Aisyah (pengajian)", "kotak amal masjid", "Program Bapak Asuh"]
+    asal = ["Mas Joko tetangga", "brosur", "brosur", "radio", "radio", "Dr. Hasan", "spanduk"]
+    baris = "".join(f"0{1 + i}/03/2024;Donatur {i};{s};{a};{(i + 1) * 1000}\n"
+                    for i, (s, a) in enumerate(zip(sumber, asal)))
+    p.write_text("Tanggal;Nama Muzaki;Sumber;Asal;Nominal\n" + baris, encoding="utf-8")
+    lap = an.anonimkan(p, tmp_path / "anon", kunci)
+    an.cetak(lap)
+    out = capsys.readouterr().out
+    teks = Path(lap.keluaran).read_text(encoding="utf-8-sig")
+    for nama in ("Wahyudi", "Pratama", "Wati", "Maryam", "Aisyah", "Joko", "Hasan"):
+        assert nama not in teks and nama not in out, nama
+    assert teks.count("kotak amal masjid") == 2          # teks umum tidak ikut tersensor
+    assert "Program Bapak Asuh" in teks and "brosur" in teks
+    assert lap.per_tabel[0]["sel_disensor"] == 6
+
+
+def test_peringatan_kolom_utuh_bernilai_unik_banyak(tmp_path, kunci, capsys):
+    p = tmp_path / "via.csv"
+    via = [f"titip ke kawan nomor {i} di kampung {chr(65 + i % 26)}x" for i in range(30)]
+    p.write_text("Tanggal;Via;Nominal\n" + "".join(f"0{1 + i % 9}/03/2024;{v};1000\n" for i, v in enumerate(via)),
+                 encoding="utf-8")
+    lap = an.anonimkan(p, tmp_path / "anon", kunci)
+    an.cetak(lap)
+    out = capsys.readouterr().out
+    assert "Kolom 'Via' (CSV) berisi teks beragam (30 nilai berbeda)" in out
+    assert "titip ke kawan" not in out  # yang dicetak nama kolomnya, bukan isinya

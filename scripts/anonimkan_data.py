@@ -50,6 +50,18 @@ RE_HP = re.compile(r"(?<![\d])(?:\+?62[\s.-]?|0)8\d{1,3}(?:[\s.-]?\d){6,9}(?![\d
 # NIK 16 digit (boleh dengan pemisah) dan nomor panjang lain (rekening, KK, NPWP 15 digit)
 RE_NIK = re.compile(r"(?<![\d])\d(?:[\s.-]?\d){15}(?![\d])")
 RE_NOMOR_PANJANG = re.compile(r"(?<![\d])\d(?:[\s.-]?\d){9,19}(?![\d])")
+# Sapaan/gelar diikuti kata berhuruf kapital: "Pak Wahyudi", "bu Wati", "H. Ahmad", "Ustadzah Aisyah".
+# Kata benda umum yang lazim mengikuti sapaan dalam nama program/tempat tidak dianggap nama orang.
+_SAPAAN = r"(?:pak|bu|bapak|ibu|h\.|hj\.|ust\.|ustadz|ustadzah|ustaz|ustazah|drs\.|dr\.|kak|mas|mbak)"
+RE_SAPAAN_NAMA = re.compile(r"(?<![\w.])(?i:" + _SAPAAN + r")\s*(?<=[.\s])([A-Z][a-zA-Z'\-]+)")
+BUKAN_NAMA_SETELAH_SAPAAN = {"Asuh", "Kota", "Rumah", "Tangga", "Negara", "Pertiwi", "Hamil", "Menyusui",
+                             "RT", "RW", "Lurah", "Camat", "Kades", "Guru", "Dosen"}
+
+
+def memuat_sapaan_nama(s: str) -> bool:
+    return any(m.group(1) not in BUKAN_NAMA_SETELAH_SAPAAN for m in RE_SAPAAN_NAMA.finditer(s))
+
+
 POLA = (("email", RE_EMAIL), ("NIK", RE_NIK), ("nomor HP/telepon", RE_HP),
         ("nomor panjang (rekening/identitas)", RE_NOMOR_PANJANG))
 
@@ -359,7 +371,8 @@ def anonimkan_tabel(t: Tabel, kunci: bytes, hapus_paksa: Set[str]) -> Tuple[Tabe
                 awalan = "MST" if set(token(t.judul[k])) & {"mustahik", "mustahiq", "penerima"} else (
                     "PTG" if set(token(t.judul[k])) & {"petugas", "amil"} else "MZK")
                 v = pseudonim(kunci, v, awalan)
-            elif isinstance(v, str) and (_bocor_di_sel(v, p) or _memuat_nama(v, nama_orang)):
+            elif isinstance(v, str) and (_bocor_di_sel(v, p) or _memuat_nama(v, nama_orang)
+                                         or memuat_sapaan_nama(v)):
                 v, sensor = SENSOR, sensor + 1
             b.append(v)
         baris_baru.append(b)
@@ -367,11 +380,14 @@ def anonimkan_tabel(t: Tabel, kunci: bytes, hapus_paksa: Set[str]) -> Tuple[Tabe
     peringatan = []
     for k in pakai:
         p, _ = peran[k]
-        if p not in ("lain",):
+        if p not in ("lain", "utuh"):
             continue
         teks = [v for v in (r[k] for r in t.baris) if isinstance(v, str) and re.search(r"[A-Za-z]{3}", v)]
         unik = len(set(teks))
-        if teks and unik >= 5:  # hati-hati: lebih baik peringatan berlebih daripada nama lolos
+        # kolom 'lain': hati-hati, lebih baik peringatan berlebih daripada nama lolos. Kolom 'utuh' (kategori
+        # seperti jenis dana/kanal) normalnya sedikit nilai; banyak nilai unik = kemungkinan teks bebas.
+        banyak = unik >= 5 if p == "lain" else (unik >= 20 and unik / max(len(teks), 1) > 0.3)
+        if teks and banyak:
             peringatan.append(f"Kolom '{t.judul[k]}' ({t.nama}) berisi teks beragam ({unik} nilai berbeda) yang mungkin "
                               "masih memuat nama atau data pribadi. Periksa manual; hapus dengan --hapus-kolom "
                               f"\"{t.judul[k]}\" bila perlu.")

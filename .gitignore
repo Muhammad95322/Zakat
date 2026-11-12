@@ -55,3 +55,18 @@ pnpm-debug.log*
 
 # Backup berisi data donatur
 backups/
+
+# DATA DONATUR/MUSTAHIK: repo ini publik. Data asli dan hasil anonimisasi TIDAK boleh masuk git.
+# Hanya contoh sintetis di data/sample/ dan template di data/template/ yang boleh dilacak.
+# Pemeriksaan CI: scripts/cek_berkas_data.py (job "keamanan").
+data/private/
+*.xlsx
+*.xlsm
+*.xls
+*.csv
+*.tsv
+*.ods
+!data/sample/*.xlsx
+!data/sample/*.csv
+!data/template/*.xlsx
+!data/template/*.csv

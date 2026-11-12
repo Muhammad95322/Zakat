@@ -97,3 +97,6 @@ jobs:
 
       - name: bandit (src/)
         run: bandit -r src/
+
+      - name: Tidak ada berkas data donatur terlacak git (repo publik)
+        run: python scripts/cek_berkas_data.py

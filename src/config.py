@@ -66,6 +66,56 @@ def validate_security_settings(app_env: str, secret_key: str) -> None:
         )
 
 
+def periksa_konfigurasi_produksi(s) -> "tuple[list, list]":
+    """Periksa pengaturan production. Kembalikan (galat, peringatan); nilai rahasia tidak pernah dikutip."""
+    galat, peringatan = [], []
+    key = s.APP_SECRET_KEY or ""
+    if key in KNOWN_INSECURE_SECRET_KEYS or len(key) < MIN_SECRET_KEY_LENGTH:
+        galat.append(f"APP_SECRET_KEY kosong/bawaan/kurang dari {MIN_SECRET_KEY_LENGTH} karakter.")
+    url_db = (s.DATABASE_URL or "").strip().lower()
+    if not url_db or url_db.startswith("sqlite"):
+        galat.append("DATABASE_URL harus PostgreSQL di production (SQLite di disk kontainer akan hilang saat "
+                     "redeploy/restart).")
+    base = (s.APP_BASE_URL or "").strip().lower()
+    lokal = ("localhost", "127.0.0.1", "0.0.0.0")  # nosec B104 - daftar alamat yang DITOLAK, bukan bind
+    if not base.startswith("https://") or any(h in base for h in lokal):
+        galat.append("APP_BASE_URL harus alamat publik https:// (dipakai di tautan email verifikasi/reset).")
+    if not s.EMAIL_ENABLED:
+        galat.append("EMAIL_ENABLED harus true: tanpa email, verifikasi akun dan reset sandi tidak berfungsi.")
+    else:
+        for nama in ("EMAIL_SMTP_HOST", "EMAIL_SMTP_USER", "EMAIL_SMTP_PASS"):
+            if not getattr(s, nama, ""):
+                galat.append(f"{nama} kosong.")
+        if (s.EMAIL_FROM or "") in ("", DEFAULT_EMAIL_FROM):
+            galat.append("EMAIL_FROM masih bawaan; isi alamat pengirim di domain yang sudah diverifikasi di "
+                         "penyedia email Anda.")
+        if s.EMAIL_SMTP_TLS not in ("", "starttls", "ssl"):
+            galat.append("EMAIL_SMTP_TLS harus 'starttls' atau 'ssl' (TLS tidak boleh dimatikan).")
+        if s.EMAIL_SMTP_PORT == 25:
+            galat.append("EMAIL_SMTP_PORT 25 diblokir Render; pakai 587, 465, atau 2525 sesuai penyedia.")
+    if s.PENYIMPANAN == "s3":
+        for nama in ("S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"):
+            if not getattr(s, nama, ""):
+                galat.append(f"{nama} kosong (PENYIMPANAN=s3).")
+    elif s.PENYIMPANAN == "lokal":
+        if os.getenv("PENYIMPANAN_LOKAL_PERMANEN", "").lower() != "true":
+            galat.append("PENYIMPANAN=lokal di production: berkas unggahan akan HILANG saat redeploy kecuali "
+                         "UPLOAD_DIR berada di disk permanen. Pakai PENYIMPANAN=s3, atau set "
+                         "PENYIMPANAN_LOKAL_PERMANEN=true bila UPLOAD_DIR ada di Render Disk.")
+    else:
+        galat.append("PENYIMPANAN harus 'lokal' atau 's3'.")
+    for nama in ("BATAS_LOGIN_IP", "BATAS_DAFTAR_IP", "BATAS_RESET_IP", "BATAS_VERIFIKASI_IP"):
+        bagian = str(getattr(s, nama)).split("/")
+        if len(bagian) != 2 or not all(b.strip().isdigit() and int(b) > 0 for b in bagian):
+            galat.append(f"{nama} harus berbentuk 'jumlah/detik', mis. 20/900.")
+    if not s.PROXY_TEPERCAYA:
+        peringatan.append("PROXY_TEPERCAYA kosong: di belakang proxy Render semua pengguna akan tampak ber-IP sama "
+                          "(batas laju per IP berlaku bersama). Isi 'render' lalu cek IP di halaman Kesehatan.")
+    if not getattr(s, "SENTRY_DSN", ""):
+        peringatan.append("SENTRY_DSN kosong: galat hanya tercatat di log Render (opsional).")
+    return galat, peringatan
+
+
 class Settings:
     APP_ENV: str = os.getenv("APP_ENV", "development")
     APP_SECRET_KEY: str = os.getenv("APP_SECRET_KEY", DEFAULT_SECRET_KEY)
@@ -129,6 +179,12 @@ class Settings:
     # Kontak penjualan yang ditampilkan di halaman langganan (kosong = belum dikonfigurasi)
     KONTAK_PENJUALAN: str = os.getenv("KONTAK_PENJUALAN", "")
 
+    # Observabilitas: log JSON terstruktur ke stdout; Sentry opsional (kosong = nonaktif)
+    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
+    LOG_FORMAT: str = os.getenv("LOG_FORMAT", "json").lower()  # json | teks
+    SENTRY_DSN: str = os.getenv("SENTRY_DSN", "")
+    SENTRY_LINGKUNGAN: str = os.getenv("SENTRY_LINGKUNGAN", "")
+
     # Super Admin
     SUPERADMIN_EMAIL: str = os.getenv("SUPERADMIN_EMAIL", "admin@zakatinsight.id")
 
@@ -136,10 +192,18 @@ class Settings:
     def is_production(self) -> bool:
         return self.APP_ENV.strip().lower() == "production"
 
+    def periksa_produksi(self):
+        """(galat, peringatan) konfigurasi produksi. Galat = aplikasi menolak start."""
+        return periksa_konfigurasi_produksi(self)
+
     def validate(self) -> None:
-        """Validasi keamanan saat startup. Lihat ``validate_security_settings``."""
-        if self.is_production:
-            validate_security_settings(self.APP_ENV, self.APP_SECRET_KEY)
+        """Validasi saat startup: di production, SEMUA galat konfigurasi dilaporkan sekaligus."""
+        if not self.is_production:
+            return
+        validate_security_settings(self.APP_ENV, self.APP_SECRET_KEY)
+        galat, _ = periksa_konfigurasi_produksi(self)
+        if galat:
+            raise ConfigError("Konfigurasi production belum aman/lengkap:\n- " + "\n- ".join(galat))
 
 
 settings = Settings()

@@ -64,9 +64,30 @@ def test_startup_production_kunci_bawaan_ditolak():
     assert "Traceback" not in hasil.stderr
 
 
-def test_startup_production_kunci_kuat_diterima():
+PROD_LENGKAP = {
+    "APP_ENV": "production", "APP_SECRET_KEY": "k" * 48,
+    "DATABASE_URL": "postgresql://u:p@db.contoh.invalid:5432/zakat", "APP_BASE_URL": "https://zakat.contoh.invalid",
+    "EMAIL_ENABLED": "true", "EMAIL_SMTP_HOST": "smtp.contoh.invalid", "EMAIL_SMTP_USER": "apikey",
+    "EMAIL_SMTP_PASS": "RAHASIA-SMTP-UJI", "EMAIL_FROM": "noreply@lembaga.contoh.invalid",
+    "PENYIMPANAN": "s3", "S3_BUCKET": "zakat-uji", "S3_ACCESS_KEY_ID": "AKIAUJI", "S3_SECRET_ACCESS_KEY": "RAHASIA-S3",
+    "PROXY_TEPERCAYA": "render",
+}
+
+
+def test_startup_production_kunci_kuat_saja_tidak_cukup():
     hasil = _jalankan_validator({"APP_ENV": "production", "APP_SECRET_KEY": "k" * 48})
+    assert hasil.returncode == 1
+    for x in ("DATABASE_URL", "APP_BASE_URL", "EMAIL_ENABLED", "PENYIMPANAN=lokal"):
+        assert x in hasil.stderr
+    assert "Traceback" not in hasil.stderr
+
+
+def test_startup_production_lengkap_diterima_tanpa_mencetak_rahasia():
+    hasil = _jalankan_validator(PROD_LENGKAP)
     assert hasil.returncode == 0, hasil.stderr
+    keluaran = hasil.stdout + hasil.stderr
+    for rahasia in ("RAHASIA-SMTP-UJI", "RAHASIA-S3", "k" * 48, "u:p@"):
+        assert rahasia not in keluaran
 
 
 def test_seed_dev_tolak_di_production(tmp_path):

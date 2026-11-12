@@ -14,6 +14,10 @@ services:
       - APP_SECRET_KEY=${APP_SECRET_KEY:?Set APP_SECRET_KEY di environment atau file .env (minimal 32 karakter acak)}
       - DATABASE_URL=postgresql://${POSTGRES_USER:-zakat}:${POSTGRES_PASSWORD:-zakat_lokal_saja}@db:5432/${POSTGRES_DB:-zakat_insight}
       - UPLOAD_DIR=/app/uploads
+      # Volume uploads_data permanen, jadi penyimpanan lokal aman dipakai juga di APP_ENV=production
+      - PENYIMPANAN=${PENYIMPANAN:-lokal}
+      - PENYIMPANAN_LOKAL_PERMANEN=true
+      - PROXY_TEPERCAYA=${PROXY_TEPERCAYA:-}
       # Alamat publik untuk tautan email; SMTP opsional (tanpa SMTP email tidak dikirim)
       - APP_BASE_URL=${APP_BASE_URL:-http://localhost:8501}
       - EMAIL_ENABLED=${EMAIL_ENABLED:-false}
@@ -21,6 +25,7 @@ services:
       - EMAIL_SMTP_PORT=${EMAIL_SMTP_PORT:-587}
       - EMAIL_SMTP_USER=${EMAIL_SMTP_USER:-}
       - EMAIL_SMTP_PASS=${EMAIL_SMTP_PASS:-}
+      - EMAIL_SMTP_TLS=${EMAIL_SMTP_TLS:-}
       - EMAIL_FROM=${EMAIL_FROM:-noreply@zakatinsight.id}
     volumes:
       # Volume bernama (bukan bind mount) agar dapat ditulis pengguna non-root di container

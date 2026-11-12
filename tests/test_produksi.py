@@ -268,3 +268,19 @@ def test_halaman_kesehatan_tanpa_rahasia(tmp_path):
     assert r.returncode == 0, r.stderr[-1500:]
     assert "EXC=0" in r.stdout and "Basis data" in r.stdout and "Penyimpanan unggahan" in r.stdout
     assert "RAHASIA-JANGAN-TAMPIL" not in r.stdout and "kunci-uji-" not in r.stdout and "sqlite" not in r.stdout
+
+
+def test_kesehatan_tanpa_nama_exception(monkeypatch):
+    """Halaman ?page=kesehatan publik: jenis galat hanya ke log, bukan ke layar."""
+    import re
+
+    import src.services.kesehatan as k
+
+    class Rusak:
+        def periksa(self):
+            raise ConnectionRefusedError("host-internal.local:5432 ditolak")
+
+    monkeypatch.setattr("src.penyimpanan.penyimpanan", lambda: Rusak())
+    ok, ket = k._penyimpanan()
+    assert ok is False
+    assert not re.search(r"\b[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]*)+\b|Error|host-internal", ket), ket

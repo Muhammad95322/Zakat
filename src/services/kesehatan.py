@@ -17,7 +17,7 @@ def _db() -> Tuple[bool, str]:
         return True, "terhubung"
     except Exception as e:
         logger.error("cek basis data gagal", extra={"galat": type(e).__name__})
-        return False, f"tidak dapat dihubungi ({type(e).__name__})"
+        return False, "tidak dapat dihubungi (rincian di log server)"
 
 
 def _penyimpanan() -> Tuple[bool, str]:
@@ -27,7 +27,7 @@ def _penyimpanan() -> Tuple[bool, str]:
         return True, f"{settings.PENYIMPANAN} dapat diakses"
     except Exception as e:
         logger.error("cek penyimpanan gagal", extra={"galat": type(e).__name__})
-        return False, f"{settings.PENYIMPANAN} tidak dapat diakses ({type(e).__name__})"
+        return False, f"{settings.PENYIMPANAN} tidak dapat diakses (rincian di log server)"
 
 
 def _email() -> Tuple[Optional[bool], str]:

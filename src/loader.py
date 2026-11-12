@@ -12,6 +12,7 @@ Setiap tabel yang dikembalikan membawa kolom ``__lokasi__`` (mis. "baris 12" ata
 "sheet '2023' baris 12") agar pesan galat bisa menunjuk baris di berkas asli.
 Semua kegagalan dilaporkan sebagai :class:`DataFileError` berbahasa Indonesia.
 """
+import contextlib
 import csv
 import io
 import re
@@ -344,10 +345,8 @@ def _sheet_mentah(isi: bytes, nama: str) -> List[Tuple[str, List[Sequence[Any]],
         raise DataFileError(f"Berkas Excel '{nama}' tidak dapat dibaca ({type(e).__name__}). "
                             "Buka dan simpan ulang berkas di Excel, lalu unggah kembali.")
     finally:
-        try:
+        with contextlib.suppress(Exception):  # menutup berkas tidak boleh menutupi galat aslinya
             wb.close()
-        except Exception:
-            pass
     if not hasil:
         raise DataFileError(f"Berkas Excel '{nama}' tidak memiliki sheet.")
     return hasil

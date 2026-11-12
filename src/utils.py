@@ -113,12 +113,9 @@ def parse_angka_indonesia(val: Any) -> Optional[float]:
     if isinstance(val, (int, float)):
         f = float(val)
         return None if math.isnan(f) or math.isinf(f) else f
-    try:
-        import numpy as np
-        if isinstance(val, np.generic):
-            return parse_angka_indonesia(val.item())
-    except Exception:  # pragma: no cover - numpy selalu tersedia
-        pass
+    import numpy as np
+    if isinstance(val, np.generic):
+        return parse_angka_indonesia(val.item())
     teks = str(val).strip().lower()
     if not teks or teks in ("nan", "none", "null", "-", "--"):
         return None

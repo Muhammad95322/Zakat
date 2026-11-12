@@ -93,6 +93,30 @@ class TestT2InjeksiRumus:
         assert nama == ["'" + v for v in RUMUS]
         assert wb["Data Bersih"]["D3"].value == -5.0  # angka negatif tetap angka
 
+    def test_sheet_bias_koreksi_tanpa_sel_rumus(self):
+        """Teks berawalan '=' di sheet "Bias & Koreksi" tetap teks saat dibuka ulang."""
+        import io as _io
+        import openpyxl
+        from src.analysis import get_trend_analysis
+        from src.cleaning import clean_data
+        from src.forecasting import forecast_donations
+        from src.report_excel import generate_excel_report
+        from src.sample_data import generate_sample_data
+        h, _ = generate_sample_data(1500, 100)
+        c, _, _ = clean_data(h)
+        fdf, meta = forecast_donations(get_trend_analysis(c)["monthly"])
+        assert meta.get("perbandingan") and meta.get("bias_per_horizon")
+        for i, b in enumerate(meta["bias_per_horizon"]):
+            b["arah"] = RUMUS[i % len(RUMUS)]
+        x = generate_excel_report(c, {"total_dana": 1}, None, fdf, None, meta)
+        wb = openpyxl.load_workbook(_io.BytesIO(x))
+        ws = wb["Bias & Koreksi"]
+        kol = [cell.value for cell in ws[1]].index("Arah bias")
+        sel = [row[kol] for row in ws.iter_rows(min_row=2)]
+        assert sel and all(s.data_type != "f" for s in sel)
+        assert [s.value for s in sel] == ["'" + RUMUS[i % len(RUMUS)] for i in range(len(sel))]
+        assert all(c.data_type != "f" for row in ws.iter_rows() for c in row)
+
     def test_csv_log_audit(self):
         import pandas as pd
         from src.ekspor_aman import ke_csv_aman
@@ -479,3 +503,101 @@ def test_f2_compose_dan_render_mengatur_email_dan_base_url():
     assert "- APP_BASE_URL=" in blok_app and "- EMAIL_ENABLED=" in blok_app
     render = (akar / "render.yaml").read_text()
     assert "key: APP_BASE_URL" in render and "key: EMAIL_SMTP_PASS" in render
+
+
+# ---------------------------------------------------------------------------
+# Oracle enumerasi pada akun terkunci (lanjutan S3)
+# ---------------------------------------------------------------------------
+def _median_login(db, email, n=5):
+    import statistics
+    hasil = []
+    for _ in range(n):
+        s = _time.perf_counter()
+        assert asv.login(db, email, "SalahSandi1") is None
+        hasil.append(_time.perf_counter() - s)
+    return statistics.median(hasil)
+
+
+def test_waktu_login_seragam_tiga_jalur(db, sample_tenant):
+    from datetime import timedelta
+    from src.waktu import utc_now
+    biasa = _pengguna(db, sample_tenant, "pembaca")
+    terkunci = _pengguna(db, sample_tenant, "pembaca")
+    terkunci.locked_until = utc_now() + timedelta(hours=1)
+    db.commit()
+    asv.login(db, "pemanasan@tidak.ada", "x")
+
+    def sandi_salah():
+        biasa.failed_login_count = 0; biasa.locked_until = None; db.commit()  # jangan sampai ikut terkunci
+        return _median_login(db, biasa.email, n=1)
+
+    import statistics
+    t_tidak_ada = _median_login(db, f"tidak-ada-{_uuid.uuid4().hex[:6]}@x.id")
+    t_salah = statistics.median(sandi_salah() for _ in range(5))
+    t_kunci = _median_login(db, terkunci.email)
+    # toleransi: yang lebih longgar dari 30% atau 20 ms (agar tidak flaky di CI)
+    toleransi = max(0.30 * t_salah, 0.020)
+    rincian = f"tidak ada {t_tidak_ada*1000:.1f} ms, sandi salah {t_salah*1000:.1f} ms, terkunci {t_kunci*1000:.1f} ms"
+    assert abs(t_kunci - t_salah) < toleransi, rincian
+    assert abs(t_tidak_ada - t_salah) < toleransi, rincian
+    assert abs(t_kunci - t_tidak_ada) < toleransi, rincian
+
+
+def test_hash_tiruan_dibuat_saat_impor():
+    import src.auth.hashing as h
+    assert isinstance(h._HASH_TIRUAN, str) and h._HASH_TIRUAN.startswith("$2")
+
+
+def test_akun_terkunci_tercatat_hanya_di_log_audit(db, sample_tenant):
+    from datetime import timedelta
+    from src.waktu import utc_now
+    u = _pengguna(db, sample_tenant, "pembaca")
+    u.locked_until = utc_now() + timedelta(hours=1); db.commit()
+    assert asv.login(db, u.email, "Rahasia123") is None  # sandi benar pun ditolak saat terkunci
+    log = db.query(AuditLog).filter(AuditLog.user_id == u.id, AuditLog.aksi == "login_ditolak_terkunci").all()
+    assert len(log) == 1 and u.email not in str(log[0].detail)
+
+
+_SKRIP_UI_LOGIN = r'''
+import os, sys, uuid
+from datetime import timedelta
+sys.path.insert(0, os.environ["ROOT"])
+from src.database import init_db, get_db
+from src.models.user import User
+from src.auth.hashing import hash_password
+from src.waktu import utc_now
+from streamlit.testing.v1 import AppTest
+init_db()
+with get_db() as db:
+    db.add_all([
+        User(id=str(uuid.uuid4()), email="biasa@u.id", password_hash=hash_password("Rahasia123"), nama_lengkap="B",
+             peran="pembaca", is_active=True, is_verified=True),
+        User(id=str(uuid.uuid4()), email="kunci@u.id", password_hash=hash_password("Rahasia123"), nama_lengkap="K",
+             peran="pembaca", is_active=True, is_verified=True, locked_until=utc_now() + timedelta(hours=1)),
+    ]); db.commit()
+for nama, email, sandi in (("TIDAK_ADA", "tidakada@u.id", "Rahasia123"), ("SANDI_SALAH", "biasa@u.id", "SalahSandi1"),
+                           ("TERKUNCI", "kunci@u.id", "Rahasia123")):
+    at = AppTest.from_file(os.path.join(os.environ["ROOT"], "app.py"), default_timeout=60); at.run()
+    at.text_input[0].input(email); at.text_input[1].input(sandi); at.button[0].click(); at.run()
+    print(nama + "=" + " | ".join(e.value for e in at.error) + " | halaman=" + str(at.session_state["page"]))
+'''
+
+
+def test_ui_pesan_identik_tiga_jalur(tmp_path):
+    pytest.importorskip("streamlit.testing.v1")
+    skrip = tmp_path / "ui.py"
+    skrip.write_text(_SKRIP_UI_LOGIN)
+    root = _Path(__file__).parent.parent
+    env = {**_os.environ, "ROOT": str(root), "APP_ENV": "development", "APP_ENV_FILE": "",
+           "DATABASE_URL": f"sqlite:///{tmp_path}/ui.db", "UPLOAD_DIR": str(tmp_path / "up")}
+    hasil = _sp.run([_sys.executable, str(skrip)], capture_output=True, text=True, env=env, cwd=str(tmp_path))
+    assert hasil.returncode == 0, hasil.stderr[-1500:]
+    pesan = {}
+    for baris in hasil.stdout.splitlines():
+        if baris.split("=")[0] in ("TIDAK_ADA", "SANDI_SALAH", "TERKUNCI"):
+            k, v = baris.split("=", 1)
+            pesan[k] = v
+    assert len(pesan) == 3, hasil.stdout[-800:]
+    assert pesan["TIDAK_ADA"] == pesan["SANDI_SALAH"] == pesan["TERKUNCI"], pesan
+    assert "Email atau kata sandi salah" in pesan["TERKUNCI"] and "halaman=login" in pesan["TERKUNCI"]
+    assert "kunci" not in pesan["TERKUNCI"].lower().split("|")[0]  # tidak menyebut penguncian

@@ -55,3 +55,6 @@ pnpm-debug.log*
 
 # Backup berisi data donatur
 backups/
+
+# Berkas sintetis hasil scripts/buat_data_kotor.py (dibuat ulang kapan saja)
+data/sintetis_kotor/

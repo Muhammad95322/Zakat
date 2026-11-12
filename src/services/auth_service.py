@@ -120,6 +120,10 @@ def login(
     
     # Cek lockout
     if user.locked_until and user.locked_until > now:
+        # Tetap jalankan bcrypt agar waktu respons sama dengan sandi salah / email tidak ada;
+        # informasi penguncian hanya masuk log audit, pengguna melihat pesan generik yang sama.
+        verifikasi_tiruan(password)
+        catat_log(db, user.id, "login_ditolak_terkunci", tenant_id=user.tenant_id, ip=ip, ua=ua)
         return None
         
     # Cek aktif & verifikasi (tetap jalankan bcrypt agar waktu respons seragam)

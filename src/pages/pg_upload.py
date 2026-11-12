@@ -1,15 +1,104 @@
-"""Halaman Unggah Data Transaksi ZIS dan Riwayat File Multi-Tenant."""
-import streamlit as st
-from pathlib import Path
-from src.database import get_db
-from src.auth.session import get_tenant_id, get_current_user, has_permission
-from src.services.upload_service import simpan_upload, get_uploads, hapus_upload
-from src.services.tenant_service import get_tenant_stats
-from src.sample_data import generate_sample_data
-from src.loader import load_file
-from src.cleaning import clean_data
-import pandas as pd
+"""Halaman Unggah Data Transaksi ZIS, wizard pemetaan kolom, dan Riwayat File Multi-Tenant."""
 import io
+import logging
+from pathlib import Path
+
+import pandas as pd
+import streamlit as st
+
+from src.auth.session import get_current_user, get_tenant_id, has_permission
+from src.components.kualitas import tampilkan_kualitas
+from src.database import get_db
+from src.loader import DataFileError
+from src.pemetaan import BIDANG_WIZARD
+from src.pipeline import periksa_berkas, siapkan_data
+from src.sample_data import generate_sample_data
+from src.services.pemetaan_service import daftar_pemetaan, simpan_pemetaan
+from src.services.tenant_service import get_tenant_stats
+from src.services.upload_service import get_uploads, hapus_upload, simpan_upload
+
+logger = logging.getLogger(__name__)
+
+KUNCI_TERTUNDA = "impor_tertunda"
+KUNCI_KUALITAS = "impor_kualitas_terakhir"
+TIDAK_ADA = "(tidak ada)"
+PESAN_TAK_TERDUGA = ("Terjadi kesalahan tak terduga saat membaca berkas. Pastikan berkas berformat .xlsx atau .csv "
+                     "berisi tabel transaksi, lalu coba lagi.")
+
+
+def _simpan(isi: bytes, nama: str, tenant_id: str, user: dict, pemetaan=None, berkas=None, kolom=None) -> None:
+    """Bersihkan + simpan berkas; simpan pemetaan pilihan pengguna untuk unggahan berikutnya."""
+    with get_db() as db:
+        lembaga = daftar_pemetaan(db, tenant_id)
+    try:
+        hasil = siapkan_data(isi, nama, pemetaan=pemetaan, pemetaan_lembaga=lembaga, berkas=berkas)
+    except DataFileError as e:
+        st.error(f"❌ {e}")
+        return
+    except Exception:
+        logger.exception("Gagal memproses berkas unggahan %s", nama)
+        st.error(f"❌ {PESAN_TAK_TERDUGA}")
+        return
+    with get_db() as db:
+        res, msg = simpan_upload(db, tenant_id, user["id"], isi, nama, hasil_siap=hasil)
+        if not res:
+            st.error(f"❌ {msg}")
+            return
+        if pemetaan:
+            simpan_pemetaan(db, tenant_id, user["id"], kolom or [], pemetaan)
+    st.session_state.pop(KUNCI_TERTUNDA, None)
+    st.session_state[KUNCI_KUALITAS] = {"nama": nama, "kualitas": hasil["kualitas"],
+                                        "pesan": msg + (" Pemetaan kolom disimpan untuk unggahan berikutnya."
+                                                        if pemetaan else "")}
+    st.rerun()
+
+
+def _proses_unggahan(isi: bytes, nama: str, tenant_id: str, user: dict) -> None:
+    st.session_state.pop(KUNCI_KUALITAS, None)
+    st.session_state.pop(KUNCI_TERTUNDA, None)
+    with get_db() as db:
+        lembaga = daftar_pemetaan(db, tenant_id)
+    try:
+        periksa = periksa_berkas(isi, nama, lembaga)
+    except DataFileError as e:
+        st.error(f"❌ {e}")
+        return
+    except Exception:
+        logger.exception("Gagal membaca berkas unggahan %s", nama)
+        st.error(f"❌ {PESAN_TAK_TERDUGA}")
+        return
+    if periksa.perlu_wizard:
+        st.session_state[KUNCI_TERTUNDA] = {"isi": isi, "nama": nama, "periksa": periksa}
+        st.rerun()
+    _simpan(isi, nama, tenant_id, user, berkas=periksa.berkas)
+
+
+def _wizard(tenant_id: str, user: dict) -> None:
+    t = st.session_state[KUNCI_TERTUNDA]
+    p = t["periksa"]
+    st.markdown("### 🧭 Pemetaan Kolom")
+    st.warning(f"Kolom pada berkas **{t['nama']}** tidak dapat dipastikan otomatis. "
+               + " ".join(p.deteksi.alasan) + " Pilih kolom yang sesuai, lalu simpan.")
+    st.caption("Pratinjau 5 baris pertama (judul kolom sesuai berkas):")
+    st.dataframe(p.pratinjau.astype(str).replace({"None": "", "nan": ""}), hide_index=True, width="stretch")
+    opsi = [TIDAK_ADA] + p.kolom
+    pilihan = {}
+    kol = st.columns(2)
+    for i, (bidang, label) in enumerate(BIDANG_WIZARD.items()):
+        saran = p.deteksi.pemetaan.get(bidang)
+        with kol[i % 2]:
+            pilihan[bidang] = st.selectbox(label, opsi, index=opsi.index(saran) if saran in opsi else 0,
+                                           key=f"wiz_{p.tanda[:10]}_{bidang}")
+    c1, c2 = st.columns([1, 1])
+    with c1:
+        if st.button("Simpan Pemetaan & Proses", type="primary", key="wiz_simpan"):
+            pem = {b: (k if k != TIDAK_ADA else None) for b, k in pilihan.items()}
+            _simpan(t["isi"], t["nama"], tenant_id, user, pemetaan=pem, berkas=p.berkas, kolom=p.kolom)
+    with c2:
+        if st.button("Batal", key="wiz_batal"):
+            st.session_state.pop(KUNCI_TERTUNDA, None)
+            st.rerun()
+
 
 def show():
     st.title("📁 Pengelolaan Data Transaksi ZIS")
@@ -58,16 +147,17 @@ def show():
             )
             
             if uploaded_file is not None:
-                if st.button("Simpan dan Proses Berkas", type="primary"):
-                    bytes_data = uploaded_file.getvalue()
-                    with get_db() as db:
-                        res, msg = simpan_upload(db, tenant_id, user["id"], bytes_data, uploaded_file.name)
-                        if res:
-                            st.success(f"✅ {msg}")
-                            st.rerun()
-                        else:
-                            st.error(f"❌ {msg}")
-                            
+                if st.button("Simpan dan Proses Berkas", type="primary", key="btn_proses_unggah"):
+                    _proses_unggahan(uploaded_file.getvalue(), uploaded_file.name, tenant_id, user)
+
+            if st.session_state.get(KUNCI_TERTUNDA):
+                _wizard(tenant_id, user)
+
+            terakhir = st.session_state.get(KUNCI_KUALITAS)
+            if terakhir:
+                st.success(f"✅ {terakhir['nama']}: {terakhir['pesan']}")
+                tampilkan_kualitas(terakhir["kualitas"], "📋 Laporan Kualitas Data berkas terakhir", terbuka=True)
+
         with col_helper:
             st.markdown("**Bantuan & Data Uji:**")
             

@@ -114,7 +114,6 @@ def show():
                     st.error(
                         "Sistem sedang dalam pemeliharaan. Silakan coba beberapa saat lagi."
                     )
-                    st.caption(f"Detail teknis: {e}")
 
         st.divider()
         st.markdown(

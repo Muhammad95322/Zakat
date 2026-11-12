@@ -14,6 +14,7 @@ Prinsip modul ini: angka yang ditampilkan harus jujur.
 * Jika statsmodels tidak terpasang atau Holt-Winters gagal/tidak konvergen,
   kandidat itu dicatat tidak tersedia beserta alasannya di ``meta["fallback_alasan"]``.
 """
+import logging
 import warnings
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -197,7 +198,9 @@ def _pred_holt_winters(y, tgl, tgl_depan):
     except _ModelGagal:
         raise
     except Exception as exc:
-        raise _ModelGagal(f"model gagal dilatih ({type(exc).__name__}: {exc})") from exc
+        # jenis & pesan exception hanya ke log server; status yang tampil ke pengguna tetap bahasa awam
+        logging.getLogger("zakat.peramalan").info("model gagal dilatih", extra={"galat": type(exc).__name__})
+        raise _ModelGagal("model gagal dilatih (perhitungan numerik tidak stabil pada data ini)") from exc
     if not np.all(np.isfinite(pred)):
         raise _ModelGagal("model menghasilkan nilai tidak terhingga/NaN")
     return pred, residual
@@ -329,7 +332,7 @@ def _uji_kandidat(kandidat: Kandidat, y: np.ndarray, tgl: pd.DatetimeIndex, titi
         try:
             pred = _prediksi_backtest(kandidat, y, tgl, t, h)
         except ImportError as exc:
-            baris["status"] = f"tidak tersedia: pustaka statsmodels tidak dapat diimpor ({exc})"
+            baris["status"] = "tidak tersedia: pustaka statsmodels tidak dapat diimpor"
             baris["gangguan"] = True
             return baris
         except _ModelGagal as exc:
@@ -896,8 +899,9 @@ def forecast_donations(monthly_df: pd.DataFrame, periods: int = 12) -> Tuple[pd.
             terpilih = b
             break
         except (ImportError, _ModelGagal, _TidakMemenuhiSyarat) as exc:
-            b["status"] = f"lolos backtest tetapi gagal dilatih pada seluruh data: {exc}"
-            catatan.append(f"PERINGATAN: {b['metode']} gagal dilatih pada seluruh data ({exc}).")
+            sebab = "pustaka statsmodels tidak dapat diimpor" if isinstance(exc, ImportError) else str(exc)
+            b["status"] = f"lolos backtest tetapi gagal dilatih pada seluruh data: {sebab}"
+            catatan.append(f"PERINGATAN: {b['metode']} gagal dilatih pada seluruh data ({sebab}).")
 
     titik = titik_awal_backtest(n)
     catatan_stabilitas = None

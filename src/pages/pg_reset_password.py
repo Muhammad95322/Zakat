@@ -76,7 +76,6 @@ def _show_request_form():
 
         except ImportError as e:
             st.error("Sistem sedang dalam pemeliharaan. Silakan coba beberapa saat lagi.")
-            st.caption(f"Detail teknis: {e}")
 
 
 def _show_new_password_form(token: str):
@@ -131,4 +130,3 @@ def _show_new_password_form(token: str):
 
         except ImportError as e:
             st.error("Sistem sedang dalam pemeliharaan. Silakan coba beberapa saat lagi.")
-            st.caption(f"Detail teknis: {e}")

@@ -124,7 +124,6 @@ def show():
 
     except ImportError as e:
         st.warning("Data tim belum tersedia.")
-        st.caption(f"Detail teknis: {e}")
 
     st.divider()
 
@@ -156,7 +155,6 @@ def show():
                 st.error(f"❌ {e}")
             except ImportError as e:
                 st.error("Sistem sedang dalam pemeliharaan.")
-                st.caption(f"Detail teknis: {e}")
 
     # Tabel Undangan Tertunda
     st.subheader("📋 Undangan Tertunda")
@@ -192,4 +190,3 @@ def show():
 
     except ImportError as e:
         st.info("Data undangan belum tersedia.")
-        st.caption(f"Detail teknis: {e}")

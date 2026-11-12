@@ -62,7 +62,6 @@ def show():
                     st.error("Gagal memperbarui nama. Coba lagi.")
             except ImportError as e:
                 st.error("Sistem sedang dalam pemeliharaan.")
-                st.caption(f"Detail teknis: {e}")
 
     st.divider()
 
@@ -119,7 +118,6 @@ def show():
                     )
             except ImportError as e:
                 st.error("Sistem sedang dalam pemeliharaan.")
-                st.caption(f"Detail teknis: {e}")
 
     st.divider()
 

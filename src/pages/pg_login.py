@@ -92,4 +92,3 @@ def show():
                         )
             except ImportError as e:
                 st.error("Sistem sedang dalam pemeliharaan. Silakan coba beberapa saat lagi.")
-                st.caption(f"Detail teknis: {e}")

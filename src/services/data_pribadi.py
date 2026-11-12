@@ -19,6 +19,7 @@ from src.config import settings
 from src.models.analysis_session import AnalysisSession
 from src.models.audit_log import AuditLog
 from src.models.invitation import Invitation
+from src.models.pemetaan_kolom import PemetaanKolom
 from src.models.tenant import Tenant
 from src.models.token_model import Token
 from src.models.upload import Upload
@@ -56,6 +57,7 @@ def hapus_lembaga(db: Session, tenant_id: str, oleh: dict, konfirmasi_slug: str)
         "sesi_analisis": db.query(AnalysisSession).filter(AnalysisSession.tenant_id == tenant_id).delete(),
         "unggahan": db.query(Upload).filter(Upload.tenant_id == tenant_id).delete(),
         "undangan": db.query(Invitation).filter(Invitation.tenant_id == tenant_id).delete(),
+        "pemetaan_kolom": db.query(PemetaanKolom).filter(PemetaanKolom.tenant_id == tenant_id).delete(),
         "token": db.query(Token).filter(Token.user_id.in_(user_ids)).delete(synchronize_session=False) if user_ids else 0,
         "log_audit": db.query(AuditLog).filter(
             (AuditLog.tenant_id == tenant_id) | (AuditLog.user_id.in_(user_ids) if user_ids else False)
@@ -90,6 +92,8 @@ def hapus_pengguna(db: Session, user_id: str, oleh: dict) -> Dict[str, int]:
         "token": db.query(Token).filter(Token.user_id == user_id).delete(),
         "undangan": db.query(Invitation).filter(Invitation.invited_by == user_id).delete(),
         "unggahan_dialihkan": db.query(Upload).filter(Upload.user_id == user_id).update({Upload.user_id: oleh.get("id")}),
+        "pemetaan_kolom_dilepas": db.query(PemetaanKolom).filter(PemetaanKolom.dibuat_oleh == user_id).update(
+            {PemetaanKolom.dibuat_oleh: None}),
         "sesi_analisis_dialihkan": db.query(AnalysisSession).filter(AnalysisSession.user_id == user_id).update(
             {AnalysisSession.user_id: oleh.get("id")}),
     }

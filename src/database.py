@@ -94,7 +94,8 @@ def init_db() -> None:
     )
 
     hasil = jalankan_migrasi(engine)
-    print(f"✅ Database siap ({hasil}).")
+    import logging
+    logging.getLogger("zakat.database").info("database siap", extra={"status": hasil})
 
 
 def jalankan_migrasi(eng=None) -> str:

@@ -3,6 +3,10 @@
 # Perlindungan XSRF (bawaan aktif; ditulis eksplisit agar tidak dimatikan tanpa sengaja)
 enableXsrfProtection = true
 enableCORS = true
+# Cookie XSRF hanya dikirim untuk permintaan dari situs yang sama. Catatan: Streamlit hanya memasang flag
+# Secure bila Streamlit sendiri menangani SSL; di belakang proxy TLS Render flag itu tidak terpasang.
+# Aplikasi TIDAK memakai cookie untuk autentikasi (token disimpan di sesi server).
+xsrfCookieSameSite = "strict"
 # Selaras dengan MAX_UPLOAD_SIZE_MB aplikasi (bawaan Streamlit 200 MB)
 maxUploadSize = 50
 headless = true

@@ -8,6 +8,13 @@ BASE_DIR = Path(__file__).parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
+# Log terstruktur tanpa data pribadi + pemantau galat opsional (SENTRY_DSN)
+import logging
+from src.observabilitas import atur_logging, atur_sentry
+atur_logging()
+atur_sentry()
+logger = logging.getLogger("zakat.app")
+
 # Validasi konfigurasi keamanan sebelum apa pun dijalankan
 from src.config import settings, ConfigError
 try:
@@ -21,8 +28,9 @@ except ConfigError as e:
 try:
     from src.database import init_db
     init_db()
-except Exception as e:
-    st.error(f"Gagal inisialisasi basis data: {e}")
+except Exception:
+    logger.exception("Gagal inisialisasi basis data")  # detail (host, dll.) hanya di log server
+    st.error("Basis data tidak dapat dihubungi. Coba beberapa saat lagi; bila berulang, hubungi admin platform.")
     st.stop()
 
 # Set Page Config
@@ -32,6 +40,10 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Production: tolak akses http (TLS diterminasi proxy Render)
+from src.middleware.https import paksa_https
+paksa_https()
 
 # Custom Styling Tema Hijau-Teal
 st.markdown("""
@@ -52,12 +64,14 @@ if "page" not in st.session_state:
 def main():
     # Ambil parameter query jika ada (misal token verifikasi)
     query_params = st.query_params
+    if query_params.get("page") == "kesehatan":
+        st.session_state["page"] = "kesehatan"
     if "token" in query_params:
         target_page = query_params.get("page", "verify_email")
         st.session_state["page"] = target_page
 
     page = st.session_state.get("page", "login")
-    public_pages = {"login", "register", "verify_email", "reset_password", "terima_undangan"}
+    public_pages = {"login", "register", "verify_email", "reset_password", "terima_undangan", "kesehatan"}
 
     # Otentikasi Gatekeeper
     if page not in public_pages:
@@ -82,6 +96,9 @@ def main():
         show()
     elif page == "terima_undangan":
         from src.pages.pg_terima_undangan import show
+        show()
+    elif page == "kesehatan":
+        from src.pages.pg_kesehatan import show
         show()
     elif page == "dashboard":
         from src.components.navbar import show_navbar

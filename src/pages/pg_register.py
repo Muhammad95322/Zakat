@@ -86,30 +86,33 @@ def show():
                     from src.database import get_db
                     from src.services.auth_service import register_tenant
 
+                    from src.services.auth_service import PESAN_DAFTAR_TERKIRIM
+                    from src.middleware.ip_klien import ip_dan_ua
+                    from src.services.batas_laju import pesan_terlalu_sering, periksa_dan_catat
+
+                    ip, ua = ip_dan_ua()
                     with get_db() as db:
+                        boleh, tunggu = periksa_dan_catat(db, "daftar", ip, ua=ua)
+                        if not boleh:
+                            st.error(pesan_terlalu_sering(tunggu))
+                            return
                         result = register_tenant(
                             db,
                             nama_lembaga=nama_lembaga.strip(),
                             nama_admin=nama_admin.strip(),
                             email=email_admin.strip().lower(),
                             password=password,
+                            ip=ip, ua=ua,
                         )
                         if result:
-                            st.success(
-                                f"✅ Email verifikasi telah dikirim ke **{email_admin}**. "
-                                "Silakan cek inbox Anda."
-                            )
-                            st.info(
-                                "Setelah email diverifikasi, Anda dapat masuk ke akun Anda."
-                            )
+                            # Pesan SAMA untuk email baru maupun yang sudah terdaftar (cegah enumerasi)
+                            st.success(f"✅ {PESAN_DAFTAR_TERKIRIM}")
                             if st.button("Kembali ke Login"):
                                 st.session_state["page"] = "login"
                                 st.rerun()
                         else:
-                            st.error(
-                                "❌ Pendaftaran gagal. Email mungkin sudah terdaftar atau "
-                                "terjadi kesalahan sistem."
-                            )
+                            st.error("❌ Pendaftaran gagal: periksa kembali isian Anda (kata sandi minimal 8 "
+                                     "karakter, 1 huruf besar, 1 angka).")
                 except ImportError as e:
                     st.error(
                         "Sistem sedang dalam pemeliharaan. Silakan coba beberapa saat lagi."

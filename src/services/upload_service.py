@@ -13,8 +13,15 @@ from src.middleware.security import validasi_file_upload, sanitasi_nama_file
 from src.services.audit_service import catat_log
 from src.config import settings
 from src.loader import DataFileError
+from src.penyimpanan import kunci_dari_storage_path, kunci_unggahan, penyimpanan
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("zakat.unggahan")
+
+
+def baca_berkas_unggahan(upload: Upload) -> bytes:
+    """Isi berkas unggahan dari penyimpanan aktif. Raises FileNotFoundError bila hilang."""
+    return penyimpanan().baca(kunci_dari_storage_path(upload.storage_path or ""))
+
 
 def cek_kuota(db: Session, tenant_id: str, ukuran_bytes: int) -> Tuple[bool, str]:
     """Cek apakah penambahan file masih dalam batas kuota paket."""
@@ -79,16 +86,12 @@ def simpan_upload(
     ext = Path(nama_bersih).suffix.lstrip(".")
     upload_id = str(uuid.uuid4())
     nama_file_simpan = f"{upload_id}.{ext}"
-    
-    # Path folder per tenant
-    tenant_dir = settings.UPLOAD_DIR / str(tenant_id)
-    tenant_dir.mkdir(parents=True, exist_ok=True)
-    full_path = tenant_dir / nama_file_simpan
-    
+    kunci = kunci_unggahan(str(tenant_id), upload_id, ext)  # <tenant>/<uuid>.<ext>
+    store = penyimpanan()
+
     try:
-        with open(full_path, "wb") as f:
-            f.write(file_bytes)
-            
+        store.simpan(kunci, file_bytes)
+
         upload = Upload(
             id=upload_id,
             tenant_id=tenant_id,
@@ -98,7 +101,7 @@ def simpan_upload(
             ukuran_bytes=len(file_bytes),
             jenis_file=ext,
             status="siap",
-            storage_path=str(full_path),
+            storage_path=kunci,
             **_ringkasan_isi(hasil_siap),
         )
         db.add(upload)
@@ -112,9 +115,11 @@ def simpan_upload(
         return upload, "File berhasil diunggah."
     except Exception:
         db.rollback()
-        if full_path.exists():
-            full_path.unlink()
-        logger.exception("Gagal menyimpan berkas unggahan")
+        try:
+            store.hapus(kunci)
+        except Exception:
+            logger.exception("gagal membersihkan berkas setelah penyimpanan gagal")
+        logger.exception("gagal menyimpan unggahan")  # pesan exception tidak dicatat (lihat observabilitas)
         return None, "Terjadi kesalahan saat menyimpan file. Coba lagi; bila berulang, hubungi admin."
 
 
@@ -149,13 +154,13 @@ def hapus_upload(db: Session, upload_id: str, tenant_id: str, user_id: str) -> b
     if not upload:
         return False
         
-    # Hapus file fisik
-    if upload.storage_path and os.path.exists(upload.storage_path):
+    # Hapus berkas di penyimpanan (lokal/S3); sisa yang gagal dihapus dibersihkan retensi
+    if upload.storage_path:
         try:
-            os.remove(upload.storage_path)
+            penyimpanan().hapus(kunci_dari_storage_path(upload.storage_path))
         except Exception as e:
-            print(f"[STORAGE WARNING] Gagal menghapus file fisik: {e}")
-            
+            logger.error("gagal menghapus berkas unggahan", extra={"galat": type(e).__name__})
+
     nama_file = upload.nama_file_asli
     db.delete(upload)
     db.commit()

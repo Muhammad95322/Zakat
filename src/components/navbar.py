@@ -60,7 +60,9 @@ def show_navbar(current_page: str = ""):
                 with get_db() as db:
                     logout(db, user.get("id"), user.get("refresh_token"))
             except Exception as e:  # logout lokal tetap jalan; catat kegagalan pencabutan token
-                print(f"[LOGOUT] Gagal mencabut refresh token: {type(e).__name__}")
+                import logging
+                logging.getLogger("zakat.sesi").warning("gagal mencabut refresh token saat logout",
+                                                        extra={"galat": type(e).__name__})
             clear_session()
             st.session_state["page"] = "login"
             st.rerun()

@@ -346,6 +346,28 @@ titik awal. Itulah alasan versi dikunci.
 
 ---
 
+### Koreksi bias & konsistensi selang
+
+Bias metode terpilih diukur dari rasio aktual/prediksi backtest per langkah horizon (`python scripts/bandingkan_metode.py`
+menampilkan tabelnya). Koreksi bias hanya dipakai bila lolos uji bertingkat tanpa kebocoran (lihat asumsi 6a).
+"Sebelum" = perilaku tanpa koreksi (sama dengan versi sebelumnya); "Luar selang" = bulan yang proyeksi titiknya berada di
+luar selang 80%.
+
+| Data | Arah bias backtest | Koreksi | MAPE evaluasi tanpa → dengan koreksi | Luar selang sebelum | sesudah |
+|---|---|---|---|---|---|
+| Bawaan (5000 transaksi) | meremehkan (median rasio 1,12–2,01) | **tidak dipakai** | 31,92% → 37,37% (153 pasangan; memburuk) | 10/12 | 10/12 |
+| 2000 transaksi | melebihkan (median rasio 0,63–0,80) | **dipakai** (faktor 0,63–0,80) | 92,10% → 70,58% (192 pasangan) | 0/12 | 0/12 |
+| `data/sample/data_contoh.xlsx` | sama dengan 2000 transaksi | **dipakai** | 92,10% → 70,58% | 0/12 | 0/12 |
+
+Pada data bawaan, bias "meremehkan" di jendela terbaru tidak stabil terhadap jendela yang lebih lama, sehingga koreksi
+justru memperbesar galat di uji bertingkat dan tidak dipakai. Masalah yang terlihat (proyeksi di luar selang di 10 dari
+12 bulan) **tidak disembunyikan**: aplikasi menampilkan peringatan "proyeksi titik berada di luar selang di 10 dari 12
+bulan; metode cenderung bias (meremehkan menurut backtest)". Bila koreksi dipaksa, selang memang mengapit proyeksi di
+11 dari 12 bulan, tetapi proyeksinya bergerigi (bulan ke-10 tidak dikoreksi karena faktor 2,01 > 2,0) dan akurasinya
+lebih buruk, jadi kode tidak disetel untuk itu.
+
+---
+
 ## 📌 Memperbarui `constraints.txt`
 
 Hasil peramalan (terutama Holt-Winters) bergantung pada versi statsmodels, numpy, scipy, dan pandas. Contoh nyata:
@@ -442,6 +464,24 @@ Asumsi yang diambil selama perbaikan rilis (silakan koreksi bila tidak sesuai ke
      (mis. tren linier pada data contoh bawaan cenderung memproyeksikan terlalu rendah di backtest, sehingga di 10 dari
      12 bulan batas bawah selang berada di atas proyeksi titik);
      itu informasi jujur tentang bias, bukan kesalahan hitung.
+6a. **Koreksi bias (opsional)**:
+   - **Faktor** langkah h = median rasio aktual/prediksi dari maks 12 titik awal terbaru (sama dengan data selang);
+     dihitung hanya bila ada **≥ 6 rasio** dan berada dalam **rentang wajar 0,5–2,0** (faktor di luar itu menandakan
+     model sangat tidak cocok, bukan bias yang bisa dikoreksi dengan aman). Di luar syarat itu langkah tersebut tidak
+     dikoreksi dan alasannya dicatat.
+   - **Uji bertingkat tanpa kebocoran**: untuk menilai jendela (titik awal t_i, langkah h), faktor hanya dipelajari dari
+     rasio yang nilai aktualnya **sudah diketahui pada t_i** (t_j + h ≤ t_i), dari backtest hingga 36 titik awal per
+     langkah. Ini lebih ketat dari sekadar "titik awal lebih lama", karena untuk h > 1 aktual titik awal yang lebih lama
+     bisa jatuh sesudah t_i. Kebocoran diuji dengan mengubah y[t_i:] (faktor tidak boleh berubah) dan uji mutasi.
+   - **Keputusan** (satu untuk semua langkah): dipakai hanya bila ada **≥ 12 pasangan evaluasi** dan MAPE evaluasi dengan
+     koreksi **≤ 90%** MAPE tanpa koreksi (perbaikan ≥ 10% relatif). Selain itu: "koreksi bias tidak dipakai" + alasan.
+   - Bila dipakai: proyeksi titik langkah h × faktor h, dan selang dihitung ulang dari galat terkoreksi
+     (aktual / (faktor × prediksi) − 1), sehingga selang berpusat di sekitar proyeksi terkoreksi. Proyeksi sebelum
+     koreksi tetap disimpan (`proyeksi_tanpa_koreksi`) dan digambar tipis di grafik.
+   - Arah bias: median rasio > 1,05 "meremehkan", < 0,95 "melebihkan", selain itu "tidak bias berarti".
+6b. **Konsistensi selang**: setiap bulan yang punya selang diperiksa 0 ≤ batas bawah ≤ proyeksi ≤ batas atas. Bulan dengan
+   proyeksi di luar selang (atau selang tidak sah) dilaporkan sebagai PERINGATAN di UI, PDF, Excel, dan catatan metode,
+   dengan arah bias dari backtest; kolom `proyeksi_di_dalam_selang` menandai tiap bulan.
 7. **RFM**: bila banyak nilai recency/monetary kembar sehingga kuantil tidak unik, skor kuantil dihitung dari peringkat
    (sebelumnya kasus ini membuat aplikasi crash).
 8. **Grafik PDF** dirender dengan matplotlib (bukan plotly+kaleido) agar tidak memerlukan browser/Chrome di server.

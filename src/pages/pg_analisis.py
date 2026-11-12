@@ -17,7 +17,10 @@ from src.analysis import (
     get_distribution_analysis, get_statistical_tests
 )
 from src.rfm import segment_rfm
-from src.forecasting import forecast_donations, format_mape_lengkap, ringkasan_catatan_metode, tabel_perbandingan
+from src.forecasting import (
+    forecast_donations, format_mape_lengkap, ringkasan_catatan_metode, ringkasan_koreksi_bias,
+    tabel_bias_koreksi, tabel_perbandingan,
+)
 from src.charts import (
     chart_trend_bulanan, chart_komposisi_donut, chart_bar_wilayah,
     chart_lorenz, chart_forecasting
@@ -238,6 +241,11 @@ def show():
             st.warning(f"⚠️ {forecast_meta.get('fallback_alasan')}")
         if forecast_meta.get("catatan_stabilitas"):
             st.info(f"⚖️ {forecast_meta['catatan_stabilitas']}")
+        konsistensi = (forecast_meta.get("konsistensi_selang") or {}).get("peringatan")
+        if konsistensi:
+            st.warning(f"⚠️ {konsistensi}")
+        if forecast_meta.get("koreksi_bias"):
+            st.info(f"🎯 {ringkasan_koreksi_bias(forecast_meta)}")
         if forecast_meta.get("mape_keterangan"):
             st.caption(forecast_meta["mape_keterangan"])
         if forecast_meta.get("dasar_pemilihan"):
@@ -247,20 +255,27 @@ def show():
             with st.expander("📊 Perbandingan MAPE backtest bergulir semua metode", expanded=True):
                 st.dataframe(tabel_metode, use_container_width=True, hide_index=True)
                 st.caption(f"Catatan metode: {ringkasan_catatan_metode(forecast_meta)}")
+        tabel_bias = tabel_bias_koreksi(forecast_meta)
+        if not tabel_bias.empty:
+            with st.expander("🎯 Bias backtest & faktor koreksi per bulan proyeksi"):
+                st.dataframe(tabel_bias, use_container_width=True, hide_index=True)
         # Catatan umum = bagian awal warning sebelum PERINGATAN/CATATAN (sudah ditampilkan terpisah)
         catatan_umum = re.split(r"(?:PERINGATAN|CATATAN): ", forecast_meta.get("warning", ""))[0].strip()
         if catatan_umum:
             st.info(catatan_umum)
             
         if not forecast_df.empty:
-            st.plotly_chart(chart_forecasting(trend["monthly"], forecast_df, forecast_meta.get("selang_label")),
+            st.plotly_chart(chart_forecasting(trend["monthly"], forecast_df, forecast_meta.get("selang_label"),
+                                              (forecast_meta.get("koreksi_bias") or {}).get("dipakai", False)),
                             use_container_width=True, key="chart_analisis_7")
             if forecast_meta.get("selang_keterangan"):
                 st.caption(forecast_meta["selang_keterangan"])
             st.dataframe(forecast_df.rename(columns={
                 "periode": "Bulan", "proyeksi": "Proyeksi Donasi (Rp)",
                 "batas_bawah": "Batas Bawah (Rp)", "batas_atas": "Batas Atas (Rp)",
-                "status_selang": "Status Selang"
+                "status_selang": "Status Selang",
+                "proyeksi_tanpa_koreksi": "Proyeksi Tanpa Koreksi (Rp)",
+                "proyeksi_di_dalam_selang": "Proyeksi di Dalam Selang"
             }), use_container_width=True)
 
     # TAB 7: Laporan & Ekspor

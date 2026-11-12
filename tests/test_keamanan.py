@@ -91,6 +91,30 @@ class TestT2InjeksiRumus:
         assert nama == ["'" + v for v in RUMUS]
         assert wb["Data Bersih"]["D3"].value == -5.0  # angka negatif tetap angka
 
+    def test_sheet_bias_koreksi_tanpa_sel_rumus(self):
+        """Teks berawalan '=' di sheet "Bias & Koreksi" tetap teks saat dibuka ulang."""
+        import io as _io
+        import openpyxl
+        from src.analysis import get_trend_analysis
+        from src.cleaning import clean_data
+        from src.forecasting import forecast_donations
+        from src.report_excel import generate_excel_report
+        from src.sample_data import generate_sample_data
+        h, _ = generate_sample_data(1500, 100)
+        c, _, _ = clean_data(h)
+        fdf, meta = forecast_donations(get_trend_analysis(c)["monthly"])
+        assert meta.get("perbandingan") and meta.get("bias_per_horizon")
+        for i, b in enumerate(meta["bias_per_horizon"]):
+            b["arah"] = RUMUS[i % len(RUMUS)]
+        x = generate_excel_report(c, {"total_dana": 1}, None, fdf, None, meta)
+        wb = openpyxl.load_workbook(_io.BytesIO(x))
+        ws = wb["Bias & Koreksi"]
+        kol = [cell.value for cell in ws[1]].index("Arah bias")
+        sel = [row[kol] for row in ws.iter_rows(min_row=2)]
+        assert sel and all(s.data_type != "f" for s in sel)
+        assert [s.value for s in sel] == ["'" + RUMUS[i % len(RUMUS)] for i in range(len(sel))]
+        assert all(c.data_type != "f" for row in ws.iter_rows() for c in row)
+
     def test_csv_log_audit(self):
         import pandas as pd
         from src.ekspor_aman import ke_csv_aman

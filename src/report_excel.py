@@ -42,7 +42,7 @@ def generate_excel_report(
             
         # Sheet 4b: Perbandingan metode peramalan (jika ada)
         if forecast_meta and forecast_meta.get("perbandingan"):
-            from src.forecasting import ringkasan_catatan_metode, tabel_perbandingan
+            from src.forecasting import ringkasan_catatan_metode, ringkasan_koreksi_bias, tabel_perbandingan
             tabel = tabel_perbandingan(forecast_meta, lengkap=True, numerik=True).rename(columns={
                 "Rata-rata MAPE": "Rata-rata MAPE (%)", "Median": "Median MAPE (%)",
                 "Terburuk": "MAPE Terburuk (%)", "SD": "SD MAPE (poin)",
@@ -60,11 +60,24 @@ def generate_excel_report(
                 {"Butir": "Dasar pemilihan", "Nilai": forecast_meta.get("dasar_pemilihan")},
                 {"Butir": "Catatan stabilitas", "Nilai": forecast_meta.get("catatan_stabilitas") or "-"},
                 {"Butir": "Peringatan keandalan", "Nilai": forecast_meta.get("peringatan_keandalan") or "-"},
+                {"Butir": "Koreksi bias dipakai",
+                 "Nilai": "ya" if (forecast_meta.get("koreksi_bias") or {}).get("dipakai") else "tidak"},
+                {"Butir": "Koreksi bias (alasan & bukti)", "Nilai": ringkasan_koreksi_bias(forecast_meta)},
+                {"Butir": "MAPE evaluasi tanpa koreksi (%)",
+                 "Nilai": ((forecast_meta.get("koreksi_bias") or {}).get("uji") or {}).get("mape_tanpa")},
+                {"Butir": "MAPE evaluasi dengan koreksi (%)",
+                 "Nilai": ((forecast_meta.get("koreksi_bias") or {}).get("uji") or {}).get("mape_dengan")},
+                {"Butir": "Bulan proyeksi di luar selang",
+                 "Nilai": len((forecast_meta.get("konsistensi_selang") or {}).get("bulan_di_luar") or [])},
                 {"Butir": "Catatan metode (lingkungan & konvergensi)",
                  "Nilai": ringkasan_catatan_metode(forecast_meta)},
                 *[{"Butir": f"Versi {k}", "Nilai": v} for k, v in (forecast_meta.get("lingkungan") or {}).items()],
             ])
             netralkan_df(ringkas).to_excel(writer, sheet_name="Ringkasan Peramalan", index=False)
+            from src.forecasting import tabel_bias_koreksi
+            tabel_bias = tabel_bias_koreksi(forecast_meta)
+            if not tabel_bias.empty:
+                netralkan_df(tabel_bias).to_excel(writer, sheet_name="Bias & Koreksi", index=False)
 
         # Sheet 5: Log Pembersihan
         if cleaning_log:

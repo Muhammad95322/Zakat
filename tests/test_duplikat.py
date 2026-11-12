@@ -47,28 +47,13 @@ def test_pilihan_buang_duplikat_persis():
     assert not any(PERINGATAN in w for w in lap["peringatan"])
 
 
-def test_id_transaksi_dari_judul_duplikat_dibuang():
-    baris = [["No. Kwitansi", "Tanggal", "Donatur", "Nominal"],
-             ["KW-001", "05/01/2024", "Siti", "100.000"], ["KW-002", "05/01/2024", "Siti", "100.000"],
-             ["KW-003", "06/01/2024", "Budi", "250.000"], ["KW-002", "05/01/2024", "Siti", "100.000"],
-             ["kw-003 ", "06/01/2024", "Budi", "250.000"]]  # kapital/spasi berbeda tetap ID yang sama
-    h = siapkan_data(_csv(baris), "a.csv")
-    assert len(h["df_himpun"]) == 3                  # dua donasi Siti (KW-001 & KW-002) tetap terpisah
-    s = h["summary_himpun"]
-    assert s["alasan"] == {"duplikat_id": 2} and s["duplikat"] == 2
-    assert s["kolom_id_transaksi"] == "No. Kwitansi" and s["sumber_id_transaksi"] == "judul"
-    assert h["kualitas"]["identik_dipertahankan"] == 0
-    assert "ID transaksi sama" in " ".join(d["alasan"] for d in h["kualitas"]["dibuang"])
-    log = " ".join(x["keterangan"] for x in h["log_himpun"])
-    assert "Dihapus 2 baris dengan ID transaksi yang sama di kolom 'No. Kwitansi'" in log
-
-
 def test_id_transaksi_dari_isi_kolom():
     baris = [["Tanggal", "Donatur", "Nominal", "Kode Sistem"]]
     baris += [[f"{1 + i % 28:02d}/02/2024", f"D{i % 5}", "10.000", f"SYS{i:05d}"] for i in range(40)]
     baris += [baris[3], baris[4]]
     h = siapkan_data(_csv(baris), "a.csv")
-    assert len(h["df_himpun"]) == 40
+    assert len(h["df_himpun"]) == 40  # 2 salinan utuh (termasuk ID) dibuang
+    assert h["summary_himpun"]["alasan"] == {"duplikat_salinan": 2}
     assert h["summary_himpun"]["kolom_id_transaksi"] == "Kode Sistem"
     assert h["summary_himpun"]["sumber_id_transaksi"] == "isi"
 
@@ -82,16 +67,6 @@ def test_id_transaksi_dari_isi_kolom():
 def test_bukan_kolom_id(judul, nilai):
     df = pd.DataFrame({"tanggal": ["2024-01-01"] * 30, "jumlah": [1] * 30, judul: [nilai(i) for i in range(30)]})
     assert deteksi_kolom_id_isi(df, list(df.columns)) is None
-
-
-def test_unggahan_ganda_utuh_dalam_satu_berkas():
-    data = _donasi(1)[1:] + [["08/01/2024", "Dodi", "wakaf", "75.000"]]
-    baris = [_donasi(1)[0]] + data + data  # seluruh isi tertempel dua kali
-    h = siapkan_data(_csv(baris), "a.csv")
-    lap = h["kualitas"]
-    assert len(h["df_himpun"]) == 8 and lap["seluruh_ganda"] is True
-    assert any("unggahan ganda utuh" in w for w in lap["peringatan"])
-    assert lap["peringatan"][0] == f"8 {PERINGATAN}"
 
 
 def test_berkas_sama_diunggah_dua_kali_terdeteksi(db, sample_tenant, admin_user, tmp_path, monkeypatch):
@@ -139,7 +114,132 @@ def test_data_contoh_resmi_punya_id_transaksi_dan_tanpa_peringatan_identik():
     isi = (Path(__file__).parent.parent / "data" / "sample" / "data_contoh.xlsx").read_bytes()
     h = siapkan_data(isi, "data_contoh.xlsx")
     assert h["summary_himpun"]["kolom_id_transaksi"] == "no_transaksi"
-    assert h["summary_himpun"]["alasan"].get("duplikat_id") == 50
+    assert h["summary_himpun"]["alasan"].get("duplikat_salinan") == 50  # salinan persis yang sengaja disisipkan
+    assert h["kualitas"]["id_berbagi"] == 0
     assert h["kualitas"]["identik_dipertahankan"] == 0
     tmpl = openpyxl.load_workbook(Path(__file__).parent.parent / "data" / "template" / "template_zakat.xlsx")
     assert tmpl["Penghimpunan"]["A1"].value == "no_transaksi"
+
+
+# ---------------------------------------------------------------------------
+# Regresi: donasi sah tidak boleh hilang (skenario a-f, angka tepat)
+# ---------------------------------------------------------------------------
+PESAN_ID = ("baris berbagi ID transaksi yang sama tetapi isinya berbeda (mis. satu kwitansi untuk beberapa pos); "
+            "semuanya dipertahankan.")
+JUDUL_ID = ["No. Bukti", "Tanggal", "Donatur", "Jenis Dana", "Nominal"]
+
+
+def _kwitansi_dua_pos(n, awal=1, tanggal="10/03/2024"):
+    baris = []
+    for k in range(awal, awal + n):
+        baris += [[f"KW-{k:03d}", tanggal, f"Donatur {k}", "Zakat Maal", "1.000.000"],
+                  [f"KW-{k:03d}", tanggal, f"Donatur {k}", "Infak", "250.000"]]
+    return baris
+
+
+def test_a_kwitansi_dua_pos_dipertahankan():
+    h = siapkan_data(_csv([JUDUL_ID] + _kwitansi_dua_pos(15)), "a.csv")
+    df = h["df_himpun"]
+    assert len(df) == 30
+    assert df["jumlah"].sum() == 18_750_000
+    assert (df["jenis_dana"] == "Infak").sum() == 15 and (df["jenis_dana"] == "Zakat Maal").sum() == 15
+    lap = h["kualitas"]
+    assert lap["baris_dibuang"] == 0 and lap["id_berbagi"] == 30
+    assert f"30 {PESAN_ID}" in lap["peringatan"]
+
+
+def test_b_salinan_persis_ber_id_dibuang():
+    unik = [[f"TRX-{i:03d}", f"{1 + i % 28:02d}/04/2024", f"D{i}", "infaq", f"{(i + 1) * 10_000}"] for i in range(20)]
+    salinan = [unik[i] for i in (0, 0, 5, 7, 7, 19)]
+    h = siapkan_data(_csv([JUDUL_ID] + unik + salinan), "a.csv")
+    assert len(h["df_himpun"]) == 20
+    assert h["summary_himpun"]["alasan"] == {"duplikat_salinan": 6}
+    assert h["df_himpun"]["jumlah"].sum() == sum((i + 1) * 10_000 for i in range(20))
+    assert h["kualitas"]["id_berbagi"] == 0 and h["kualitas"]["identik_dipertahankan"] == 0
+
+
+def test_c_id_kosong_sebagian():
+    tanpa_nomor = [["", "11/03/2024", "Hamba Allah", "sedekah", "50.000"]] * 10  # kotak amal: identik, tanpa nomor
+    h = siapkan_data(_csv([JUDUL_ID] + tanpa_nomor + _kwitansi_dua_pos(10)), "a.csv")
+    df = h["df_himpun"]
+    assert h["kualitas"]["baris_dibaca"] == 30 and len(df) == 30
+    assert df["jumlah"].sum() == 10 * 50_000 + 10 * 1_250_000
+    lap = h["kualitas"]
+    assert lap["id_berbagi"] == 20 and lap["identik_dipertahankan"] == 10
+    assert f"20 {PESAN_ID}" in lap["peringatan"]
+    assert any(w.startswith("10 baris identik dipertahankan") for w in lap["peringatan"])
+
+
+def test_d_nomor_bukti_dipakai_ulang_tiap_tahun():
+    baris = [[f"B-{b:02d}", f"{b:02d}/{b:02d}/{th}", f"Donatur {th}-{b}", "zakat mal", f"{th - 2000}{b:02d}000"]
+             for th in (2022, 2023, 2024) for b in range(1, 13)]
+    total = sum(int(f"{th - 2000}{b:02d}000") for th in (2022, 2023, 2024) for b in range(1, 13))
+    h = siapkan_data(_csv([JUDUL_ID] + baris), "a.csv")
+    df = h["df_himpun"]
+    assert len(df) == 36 and df["jumlah"].sum() == total
+    assert sorted(df["tanggal"].dt.year.unique().tolist()) == [2022, 2023, 2024]
+    assert h["kualitas"]["id_berbagi"] == 36
+
+
+def test_e_sepuluh_identik_tanpa_id():
+    identik = [["05/01/2024", "Siti", "infaq", "100.000"]] * 10
+    lain = [[f"{6 + i:02d}/01/2024", f"D{i}", "sedekah", f"{(i + 1) * 5_000}"] for i in range(10)]
+    h = siapkan_data(_csv([["Tanggal", "Donatur", "Jenis Dana", "Nominal"]] + identik + lain), "a.csv")
+    lap = h["kualitas"]
+    assert lap["baris_dibaca"] == 20 and len(h["df_himpun"]) == 20
+    assert lap["identik_dipertahankan"] == 10
+    assert "10 baris identik dipertahankan karena tidak ada ID transaksi; periksa apakah ada unggahan ganda." \
+        in lap["peringatan"]
+
+
+def test_f_unggahan_ganda_utuh(db, sample_tenant, admin_user, tmp_path, monkeypatch):
+    data = [["05/01/2024", "Siti", "infaq", "100.000"], ["06/01/2024", "Budi", "zakat mal", "250.000"],
+            ["07/01/2024", "Ani", "sedekah", "50.000"]]
+    judul = ["Tanggal", "Donatur", "Jenis Dana", "Nominal"]
+    # (1) isi berkas tertempel dua kali di berkas yang sama
+    h = siapkan_data(_csv([judul] + data + data), "ganda.csv")
+    assert len(h["df_himpun"]) == 6 and h["kualitas"]["seluruh_ganda"] is True
+    assert any("unggahan ganda utuh" in w for w in h["kualitas"]["peringatan"])
+    # dengan kolom ID: salinan utuh dibuang dan tetap diperingatkan
+    ber_id = [[f"KW-{i}"] + r for i, r in enumerate(data)]
+    h = siapkan_data(_csv([["No. Bukti"] + judul] + ber_id + ber_id), "ganda_id.csv")
+    assert len(h["df_himpun"]) == 3 and h["summary_himpun"]["alasan"] == {"duplikat_salinan": 3}
+    assert any("unggahan ganda utuh" in w for w in h["kualitas"]["peringatan"])
+    # (2) berkas yang sama diunggah dua kali
+    from src.config import settings
+    from src.services.unggahan_kembar import cari_unggahan_kembar
+    from src.services.upload_service import simpan_upload
+    monkeypatch.setattr(settings, "UPLOAD_DIR", tmp_path)
+    isi = _csv([judul] + data)
+    pertama, _ = simpan_upload(db, sample_tenant.id, admin_user.id, isi, "januari.csv")
+    assert cari_unggahan_kembar(db, sample_tenant.id, isi).id == pertama.id
+
+
+def test_pilihan_id_unik_opsional_dan_disimpan(db, sample_tenant, admin_user):
+    from src.services.pemetaan_service import daftar_pemetaan, simpan_pemetaan
+    isi = _csv([JUDUL_ID] + _kwitansi_dua_pos(15))
+    h = siapkan_data(isi, "a.csv")
+    assert h["pemetaan"]["opsi"]["id_transaksi_unik"] is False          # tidak aktif secara bawaan
+    paksa = siapkan_data(isi, "a.csv", id_transaksi_unik=True)
+    assert len(paksa["df_himpun"]) == 15 and paksa["summary_himpun"]["alasan"] == {"duplikat_id": 15}
+    assert paksa["kualitas"]["id_berbagi"] == 0
+    simpan_pemetaan(db, sample_tenant.id, admin_user.id, h["kolom"], h["pemetaan"]["pemetaan"],
+                    opsi={"id_transaksi_unik": True})
+    lembaga = daftar_pemetaan(db, sample_tenant.id)
+    assert lembaga[0]["opsi"] == {"id_transaksi_unik": True}
+    assert len(siapkan_data(isi, "a.csv", pemetaan_lembaga=lembaga)["df_himpun"]) == 15
+    tabel = tabel_kualitas(siapkan_data(isi, "a.csv", pemetaan_lembaga=lembaga)["kualitas"]).set_index("Butir")
+    assert "ID dianggap unik" in tabel.loc["ID transaksi", "Nilai"]
+
+
+def test_id_tetap_dikenali_dengan_pemetaan_tersimpan_atau_wizard(db, sample_tenant, admin_user):
+    """Regresi: pemetaan tersimpan/wizard (tanpa bidang ID) dulu membuat kolom 'No. Bukti' diabaikan."""
+    from src.services.pemetaan_service import daftar_pemetaan, simpan_pemetaan
+    simpan_pemetaan(db, sample_tenant.id, admin_user.id, ["Tanggal", "Donatur", "Jenis Dana", "Nominal"],
+                    {"tanggal": "Tanggal", "jumlah": "Nominal", "nama_muzaki": "Donatur", "jenis_dana": "Jenis Dana"})
+    isi = _csv([JUDUL_ID] + _kwitansi_dua_pos(5))
+    h = siapkan_data(isi, "a.csv", pemetaan_lembaga=daftar_pemetaan(db, sample_tenant.id))
+    assert h["pemetaan"]["status"] == "tersimpan"
+    assert h["summary_himpun"]["kolom_id_transaksi"] == "No. Bukti" and h["kualitas"]["id_berbagi"] == 10
+    w = siapkan_data(isi, "a.csv", pemetaan={"tanggal": "Tanggal", "jumlah": "Nominal"})
+    assert w["summary_himpun"]["kolom_id_transaksi"] == "No. Bukti" and len(w["df_himpun"]) == 10

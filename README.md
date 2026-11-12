@@ -17,8 +17,8 @@
   - Tanggal ISO, `dd/mm/yyyy`, `12 Januari 2024`, `12-Jan-24`, serial Excel, campuran, urutan bulan/hari, dan koreksi bug lokal Excel. Nominal `Rp 1.500.000,-`, `1,500,000`, desimal, berspasi, satuan ribu/juta di judul kolom.
   - Judul di atas header, sel digabung, baris total, kolom/baris kosong, sheet per tahun, lembar gabungan masuk/keluar, serta CSV koma/titik koma/tab dengan UTF-8, BOM, atau Windows-1252.
   - **Laporan kualitas data** (baris valid, alasan pembuangan per baris, kategori tak dikenal, rentang tanggal, peringatan bila < 24 bulan) di UI, PDF, dan Excel.
-  - Hasil uji pada 66 variasi berkas sintetis (53 otomatis, 3 lewat wizard, 9 ditolak dengan pesan jelas, 1 gagal) beserta hal yang belum didukung ada di [`docs/HASIL_UJI_IMPOR.md`](docs/HASIL_UJI_IMPOR.md).
-  - Duplikat dibuang berdasarkan **ID transaksi** (no. bukti/kwitansi/referensi, dari judul atau isi kolom); tanpa ID, baris identik **dipertahankan** dengan peringatan dan pilihan membuangnya (unggahan ganda). Deteksi transaksi bernilai besar (*Outlier IQR*).
+  - Hasil uji pada 70 variasi berkas sintetis (57 otomatis, 3 lewat wizard, 9 ditolak dengan pesan jelas, 1 gagal) beserta hal yang belum didukung ada di [`docs/HASIL_UJI_IMPOR.md`](docs/HASIL_UJI_IMPOR.md).
+  - Duplikat: hanya **salinan utuh** (seluruh kolom termasuk ID transaksi sama) yang dibuang. Baris ber-ID sama dengan isi berbeda (kwitansi multi-pos, nomor dipakai ulang) dan baris identik tanpa ID **dipertahankan** dengan peringatan, plus pilihan opsional untuk membuangnya. Deteksi transaksi bernilai besar (*Outlier IQR*).
 - 📊 **Dashboard Analitik & Statistik**:
   - Indikator Kinerja Utama (Total Dana, Muzaki Unik, Rata-Rata Donasi).
   - Analisis Tren Waktu & Pola Musiman (Ramadan dan Akhir Tahun).

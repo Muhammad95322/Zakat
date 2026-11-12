@@ -133,6 +133,23 @@ with get_db() as db:
 at.run()
 at.button(key="btn_proses_unggah").click().run()
 lapor("KEMBAR")
+
+# 9. kwitansi dua pos (ID sama, isi beda): dipertahankan + peringatan; tombol opsional "ID unik"
+dua_pos = "No. Bukti;Tanggal;Donatur;Jenis Dana;Nominal\n" + "".join(
+    f"KW-{k};{k:02d}/03/2024;D{k};zakat mal;1.000.000\nKW-{k};{k:02d}/03/2024;D{k};infaq;250.000\n"
+    for k in range(1, 6))
+AKTIF["berkas"] = Berkas("dua_pos.csv", dua_pos.encode())
+at.run()
+at.button(key="btn_proses_unggah").click().run()
+lapor("IDBAGI")
+print("IDBAGI_TOMBOL=" + " | ".join(b.label for b in at.button if b.key == "btn_id_unik"))
+at.button(key="btn_id_unik").click().run()
+lapor("IDUNIK")
+print("IDUNIK_INFO=" + " | ".join(e.value for e in at.info))
+with get_db() as db:
+    print("IDUNIK_OPSI=" + str([p["opsi"] for p in daftar_pemetaan(db, tid)]))
+at.button(key="btn_id_tidak_unik").click().run()
+lapor("IDBATAL")
 '''
 
 
@@ -202,6 +219,18 @@ def test_baris_identik_peringatan_dan_tombol_buang(keluaran):
 def test_berkas_sama_diunggah_lagi_diperingatkan(keluaran):
     assert keluaran["KEMBAR_EXC"].startswith("0")
     assert "identik byte demi byte dengan unggahan 'identik.csv'" in keluaran["KEMBAR_WARN"]
+
+
+def test_id_berbagi_dipertahankan_dan_tombol_id_unik_opsional(keluaran):
+    assert keluaran["IDBAGI_EXC"].startswith("0"), keluaran["IDBAGI_EXC"]
+    assert ("10 baris berbagi ID transaksi yang sama tetapi isinya berbeda (mis. satu kwitansi untuk beberapa pos); "
+            "semuanya dipertahankan." in keluaran["IDBAGI_WARN"])
+    assert keluaran["IDBAGI_TOMBOL"] == "Anggap ID transaksi unik, buang baris ber-ID sama"
+    assert keluaran["IDUNIK_EXC"].startswith("0")
+    assert "ID transaksi dianggap UNIK" in keluaran["IDUNIK_OK"] and "dianggap unik" in keluaran["IDUNIK_INFO"]
+    assert "'id_transaksi_unik': True" in keluaran["IDUNIK_OPSI"]
+    assert keluaran["IDBATAL_EXC"].startswith("0")
+    assert "baris berbagi ID transaksi yang sama" in keluaran["IDBATAL_WARN"]  # kembali dipertahankan
 
 
 def test_halaman_analisis_menampilkan_kualitas(keluaran):

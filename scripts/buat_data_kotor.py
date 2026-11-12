@@ -595,19 +595,45 @@ def semua_variasi(besar: bool = True) -> List[Variasi]:
     V.append(_v("v55_duplikat_id_kwitansi", "Kolom 'No. Kwitansi'; 5 baris dengan nomor kwitansi kembar",
                 "duplikat", "v55_duplikat_id_kwitansi.csv",
                 tulis_csv([judul(kid)] + render(data, kid, rng), ";"),
-                {**harapan(H), "duplikat_id": 5}, pemetaan_benar(kid)))
+                {**harapan(H), "salinan_utuh": 5}, pemetaan_benar(kid)))
     kid = kolom_standar() + [("Kode Sistem", "no_kw", ident)]
     data = pd.concat([HK2, HK2.iloc[[10, 11]]], ignore_index=True)
     V.append(_v("v56_id_dari_isi", "Kolom ID berjudul tak lazim ('Kode Sistem'), dikenali dari isinya; 2 kembar",
                 "duplikat", "v56_id_dari_isi.xlsx",
                 tulis_xlsx([("Penghimpunan", [judul(kid)] + render(data, kid, rng))]),
-                {**harapan(H), "duplikat_id": 2}, pemetaan_benar(kid)))
+                {**harapan(H), "salinan_utuh": 2}, pemetaan_benar(kid)))
     k = kolom_standar()
     ganda = pd.concat([H, H], ignore_index=True)              # isi berkas ditempel dua kali, tanpa ID
     V.append(_v("v57_unggahan_ganda_utuh", "Seluruh isi berkas tertempel dua kali tanpa ID (peringatan)",
                 "duplikat", "v57_unggahan_ganda_utuh.xlsx",
                 tulis_xlsx([("Penghimpunan", [judul(k)] + render(ganda, k, rng))]),
                 {**harapan(ganda), "identik": len(ganda), "seluruh_ganda": True}, pemetaan_benar(k)))
+
+    # ID sama, isi berbeda = donasi sah (kunci jawaban: SEMUA baris dipertahankan) + peringatan
+    kid = [("No. Kwitansi", "no_kw", ident)] + kolom_standar()
+    pos2 = HK2.iloc[:40].assign(jenis_dana="Infak", jumlah=lambda d: d["jumlah"] / 4)  # pos kedua di kwitansi sama
+    data = pd.concat([HK2, pos2], ignore_index=True).sort_values(["no_kw"], kind="stable").reset_index(drop=True)
+    V.append(_v("v58_kwitansi_dua_pos", "40 kwitansi memuat dua pos (Zakat + Infak) dengan nomor sama",
+                "duplikat", "v58_kwitansi_dua_pos.xlsx",
+                tulis_xlsx([("Penghimpunan", [judul(kid)] + render(data, kid, rng))]),
+                {**harapan(data), "id_berbagi": 80}, pemetaan_benar(kid)))
+    ulang = H.assign(no_kw=[f"BKT-{(i % 100) + 1:03d}" for i in range(len(H))])  # nomor bukti mulai ulang
+    V.append(_v("v59_bukti_dipakai_ulang", "Nomor bukti 1-100 dipakai ulang (300 donasi berbeda)", "duplikat",
+                "v59_bukti_dipakai_ulang.csv", tulis_csv([judul(kid)] + render(ulang, kid, rng), ";"),
+                {**harapan(ulang), "id_berbagi": 300}, pemetaan_benar(kid)))
+    sebagian = HK2.assign(no_kw=[None if i % 4 == 0 else v for i, v in enumerate(HK2["no_kw"])])
+    kotak = sebagian.iloc[[0] * 5].assign(no_kw=None)  # 5 setoran kotak amal identik tanpa nomor
+    data = pd.concat([sebagian, kotak], ignore_index=True)
+    V.append(_v("v60_id_kosong_sebagian", "Seperempat baris tanpa nomor kwitansi (+5 setoran identik tanpa nomor)",
+                "duplikat", "v60_id_kosong_sebagian.xlsx",
+                tulis_xlsx([("Penghimpunan", [judul(kid)] + render(data, kid, rng))]),
+                {**harapan(data), "identik": 6}, pemetaan_benar(kid)))
+    beda = HK2.iloc[[10, 20, 30]].assign(jumlah=lambda d: d["jumlah"] + 5000)  # nomor sama, nominal bertentangan
+    data = pd.concat([HK2, beda], ignore_index=True)
+    V.append(_v("v61_id_sama_nominal_beda", "3 kwitansi tercatat dua kali dengan nominal berbeda (bertentangan)",
+                "duplikat", "v61_id_sama_nominal_beda.csv",
+                tulis_csv([judul(kid)] + render(data, kid, rng), ";"),
+                {**harapan(data), "id_berbagi": 6}, pemetaan_benar(kid)))
 
     # --- 10. yang HARUS ditolak dengan pesan jelas ---
     V.append(_v("t01_berkas_kosong", "Berkas 0 byte", "tolak", "t01_berkas_kosong.xlsx", b"", ditolak=True,

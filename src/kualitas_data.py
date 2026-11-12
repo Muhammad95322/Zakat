@@ -95,12 +95,18 @@ def buat_laporan(
         peringatan.append(f"Nominal dikonversi dari satuan {summary_himpun['satuan_nominal']} rupiah sesuai judul "
                           "kolomnya.")
     identik = int(summary_himpun.get("identik_dipertahankan") or 0)
+    id_berbagi = int(summary_himpun.get("id_berbagi") or 0)
+    awal: List[str] = []
+    if summary_himpun.get("seluruh_ganda"):
+        awal.append("Setiap baris data muncul tepat dua kali: kemungkinan seluruh isi berkas tertempel atau "
+                    "terunggah dua kali (unggahan ganda utuh).")
     if identik:
-        peringatan.insert(0, f"{identik} baris identik dipertahankan karena tidak ada ID transaksi; periksa apakah "
-                             "ada unggahan ganda.")
-        if summary_himpun.get("seluruh_ganda"):
-            peringatan.insert(1, "Setiap baris data muncul tepat dua kali: kemungkinan seluruh isi berkas tertempel "
-                                 "atau terunggah dua kali (unggahan ganda utuh).")
+        awal.append(f"{identik} baris identik dipertahankan karena tidak ada ID transaksi; periksa apakah ada "
+                    "unggahan ganda.")
+    if id_berbagi:
+        awal.append(f"{id_berbagi} baris berbagi ID transaksi yang sama tetapi isinya berbeda (mis. satu kwitansi "
+                    "untuk beberapa pos); semuanya dipertahankan.")
+    peringatan[:0] = awal
     if deteksi.get("status") == "ragu":
         peringatan.append("Pemetaan kolom tidak sepenuhnya yakin: " + " ".join(deteksi.get("alasan", [])))
 
@@ -136,6 +142,9 @@ def buat_laporan(
         "contoh_identik": list(summary_himpun.get("contoh_identik") or []),
         "seluruh_ganda": bool(summary_himpun.get("seluruh_ganda")),
         "kolom_id_transaksi": summary_himpun.get("kolom_id_transaksi"),
+        "id_berbagi": id_berbagi,
+        "contoh_id_berbagi": list(summary_himpun.get("contoh_id_berbagi") or []),
+        "id_transaksi_unik": bool((deteksi.get("opsi") or {}).get("id_transaksi_unik")),
         "sumber_id_transaksi": summary_himpun.get("sumber_id_transaksi"),
         "buang_duplikat_persis": bool((deteksi.get("opsi") or {}).get("buang_duplikat_persis")),
     }
@@ -148,7 +157,14 @@ _STATUS = {"otomatis": "terdeteksi otomatis", "tersimpan": "memakai pemetaan ter
 def _teks_id(lap: Dict[str, Any]) -> str:
     if lap.get("kolom_id_transaksi"):
         asal = "dari isi kolom" if lap.get("sumber_id_transaksi") == "isi" else "dari judul kolom"
-        return f"kolom '{lap['kolom_id_transaksi']}' ({asal}); duplikat dibuang berdasarkan ID"
+        teks = f"kolom '{lap['kolom_id_transaksi']}' ({asal}); salinan utuh dibuang"
+        if lap.get("id_transaksi_unik"):
+            return teks + "; baris ber-ID sama juga dibuang (pilihan lembaga: ID dianggap unik)"
+        if lap.get("id_berbagi"):
+            teks += f"; {lap['id_berbagi']} baris berbagi ID dengan isi berbeda dipertahankan"
+        if lap.get("identik_dipertahankan"):
+            teks += f"; {lap['identik_dipertahankan']} baris tanpa ID yang identik dipertahankan"
+        return teks
     if lap.get("buang_duplikat_persis"):
         return "tidak ada; duplikat persis dibuang (pilihan lembaga)"
     n = lap.get("identik_dipertahankan") or 0

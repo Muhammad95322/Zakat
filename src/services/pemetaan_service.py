@@ -10,7 +10,7 @@ from src.waktu import utc_now
 
 MAKS_PER_LEMBAGA = 50
 KUNCI_OPSI = "_opsi"  # disimpan di dalam JSON pemetaan (tanpa migrasi)
-OPSI_DIIZINKAN = {"buang_duplikat_persis"}
+OPSI_DIIZINKAN = {"buang_duplikat_persis", "id_transaksi_unik"}
 
 
 def daftar_pemetaan(db: Session, tenant_id: str) -> List[Dict[str, Any]]:

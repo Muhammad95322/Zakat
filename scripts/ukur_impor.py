@@ -72,8 +72,16 @@ def cocokkan(hasil: Dict[str, Any], h: Dict[str, Any]) -> List[str]:
         if not any("baris identik dipertahankan karena tidak ada ID transaksi" in w
                    for w in hasil["kualitas"]["peringatan"]):
             salah.append("peringatan baris identik tidak muncul")
-    if "duplikat_id" in h and (ringkas.get("alasan") or {}).get("duplikat_id", 0) != h["duplikat_id"]:
-        salah.append(f"duplikat ID dibuang {(ringkas.get('alasan') or {}).get('duplikat_id', 0)} != {h['duplikat_id']}")
+    if "salinan_utuh" in h and (ringkas.get("alasan") or {}).get("duplikat_salinan", 0) != h["salinan_utuh"]:
+        salah.append(f"salinan utuh dibuang {(ringkas.get('alasan') or {}).get('duplikat_salinan', 0)} "
+                     f"!= {h['salinan_utuh']}")
+    if "id_berbagi" in h:
+        if ringkas.get("id_berbagi") != h["id_berbagi"]:
+            salah.append(f"baris berbagi ID {ringkas.get('id_berbagi')} != {h['id_berbagi']}")
+        if not any("berbagi ID transaksi yang sama tetapi isinya berbeda" in w for w in hasil["kualitas"]["peringatan"]):
+            salah.append("peringatan ID berbagi tidak muncul")
+    if (ringkas.get("alasan") or {}).get("duplikat_id"):
+        salah.append("baris ber-ID sama dibuang tanpa pilihan pengguna")
     if h.get("seluruh_ganda") and not ringkas.get("seluruh_ganda"):
         salah.append("unggahan ganda utuh tidak terdeteksi")
     if "salur_n" in h:

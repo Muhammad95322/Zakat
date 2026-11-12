@@ -42,8 +42,9 @@ def berkas_sintetis():
 
 
 def _total_pandas_langsung(xlsx: bytes) -> float:
-    # Ada kolom ID transaksi (no_transaksi): duplikat = nomor transaksi sama, baris pertama dipertahankan
-    raw = pd.read_excel(io.BytesIO(xlsx), sheet_name="Penghimpunan").drop_duplicates(subset=["no_transaksi"])
+    # Jawaban bisnis: duplikat yang disisipkan generator adalah salinan persis -> dibuang; baris lain (termasuk
+    # baris ber-ID sama dengan isi berbeda) adalah donasi sah dan tetap dihitung.
+    raw = pd.read_excel(io.BytesIO(xlsx), sheet_name="Penghimpunan").drop_duplicates()
     jumlah = pd.to_numeric(raw["jumlah"], errors="coerce")
     tanggal = pd.to_datetime(raw["tanggal"], errors="coerce", format="%Y-%m-%d")
     return float(jumlah[(jumlah > 0) & tanggal.notna()].sum())

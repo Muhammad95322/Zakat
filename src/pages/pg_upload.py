@@ -59,19 +59,26 @@ def _simpan(isi: bytes, nama: str, tenant_id: str, user: dict, pemetaan=None, be
     st.rerun()
 
 
-def _atur_duplikat(tenant_id: str, user: dict, terakhir: dict, buang: bool) -> None:
-    """Simpan pilihan buang/pertahankan duplikat persis bersama pemetaan kolom, lalu hitung ulang laporan."""
+def _atur_duplikat(tenant_id: str, user: dict, terakhir: dict, kunci: str, nilai: bool) -> None:
+    """Simpan pilihan duplikat (buang_duplikat_persis / id_transaksi_unik) bersama pemetaan kolom, lalu hitung
+    ulang laporan kualitas berkas terakhir."""
+    lap = terakhir["kualitas"]
+    opsi = {"buang_duplikat_persis": bool(lap.get("buang_duplikat_persis")),
+            "id_transaksi_unik": bool(lap.get("id_transaksi_unik")), kunci: nilai}
     with get_db() as db:
-        simpan_pemetaan(db, tenant_id, user["id"], terakhir["kolom"], terakhir["pemetaan"],
-                        opsi={"buang_duplikat_persis": buang})
+        simpan_pemetaan(db, tenant_id, user["id"], terakhir["kolom"], terakhir["pemetaan"], opsi=opsi)
         lembaga = daftar_pemetaan(db, tenant_id)
     try:
         hasil = siapkan_data(terakhir["isi"], terakhir["nama"], pemetaan_lembaga=lembaga)
         terakhir["kualitas"] = hasil["kualitas"]
     except Exception:
         logger.exception("Gagal menghitung ulang laporan kualitas")
-    terakhir["pesan"] = ("Pilihan disimpan: duplikat persis DIBUANG untuk berkas dengan susunan kolom ini."
-                         if buang else "Pilihan disimpan: baris identik DIPERTAHANKAN.")
+    pesan = {("buang_duplikat_persis", True): "Pilihan disimpan: duplikat persis DIBUANG untuk berkas dengan "
+                                              "susunan kolom ini.",
+             ("buang_duplikat_persis", False): "Pilihan disimpan: baris identik DIPERTAHANKAN.",
+             ("id_transaksi_unik", True): "Pilihan disimpan: ID transaksi dianggap UNIK; baris ber-ID sama dibuang.",
+             ("id_transaksi_unik", False): "Pilihan disimpan: baris ber-ID sama dengan isi berbeda DIPERTAHANKAN."}
+    terakhir["pesan"] = pesan[(kunci, nilai)]
     st.rerun()
 
 
@@ -82,7 +89,19 @@ def _tampilkan_duplikat(tenant_id: str, user: dict, terakhir: dict) -> None:
         st.warning(f"⚠️ Berkas ini identik byte demi byte dengan unggahan '{k['nama']}' ({k['waktu']}). "
                    "Kemungkinan unggahan ganda; hapus salah satunya di Riwayat bila tidak disengaja.")
     if lap.get("kolom_id_transaksi"):
-        return
+        if lap.get("id_berbagi"):
+            st.warning(f"⚠️ {lap['id_berbagi']} baris berbagi ID transaksi yang sama tetapi isinya berbeda "
+                       "(mis. satu kwitansi untuk beberapa pos); semuanya dipertahankan.")
+            st.caption("Bawaan: semua baris dipertahankan agar donasi sah tidak hilang. Pilih tombol di bawah HANYA "
+                       "bila di lembaga Anda satu nomor bukti PASTI satu transaksi; baris ber-ID sama selain yang "
+                       "pertama akan DIBUANG walau nominal/jenis dananya berbeda.")
+            if st.button("Anggap ID transaksi unik, buang baris ber-ID sama", key="btn_id_unik"):
+                _atur_duplikat(tenant_id, user, terakhir, "id_transaksi_unik", True)
+        elif lap.get("id_transaksi_unik"):
+            st.info("ID transaksi dianggap unik untuk berkas dengan susunan kolom ini (pilihan lembaga): baris "
+                    "ber-ID sama dibuang.")
+            if st.button("↩️ Pertahankan baris ber-ID sama", key="btn_id_tidak_unik"):
+                _atur_duplikat(tenant_id, user, terakhir, "id_transaksi_unik", False)
     if lap.get("identik_dipertahankan"):
         st.warning(f"⚠️ {lap['identik_dipertahankan']} baris identik dipertahankan karena tidak ada ID transaksi; "
                    "periksa apakah ada unggahan ganda.")
@@ -90,11 +109,11 @@ def _tampilkan_duplikat(tenant_id: str, user: dict, terakhir: dict) -> None:
                    "itu terunggah dua kali. Pilihan ini disimpan bersama pemetaan kolom lembaga.")
         if st.button(f"🧹 Buang {lap.get('salinan_identik', 0)} baris duplikat persis (unggahan ganda)",
                      key="btn_buang_duplikat"):
-            _atur_duplikat(tenant_id, user, terakhir, True)
+            _atur_duplikat(tenant_id, user, terakhir, "buang_duplikat_persis", True)
     elif lap.get("buang_duplikat_persis"):
         st.info("Duplikat persis dibuang untuk berkas dengan susunan kolom ini (pilihan lembaga).")
         if st.button("↩️ Pertahankan baris identik", key="btn_pertahankan_duplikat"):
-            _atur_duplikat(tenant_id, user, terakhir, False)
+            _atur_duplikat(tenant_id, user, terakhir, "buang_duplikat_persis", False)
 
 
 def _proses_unggahan(isi: bytes, nama: str, tenant_id: str, user: dict) -> None:

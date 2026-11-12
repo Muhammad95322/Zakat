@@ -106,6 +106,12 @@ AKTIF["berkas"] = Berkas("rusak.xlsx", b"PK\x03\x04bukan-zip")
 at.run()
 at.button(key="btn_proses_unggah").click().run()
 lapor("RUSAK")
+
+# 6. halaman analisis menampilkan laporan kualitas (pemetaan tersimpan dipakai)
+at.session_state["page"] = "analisis"
+at.run()
+lapor("ANL")
+print("ANL_EXPANDER=" + " | ".join(e.label for e in at.expander))
 '''
 
 
@@ -158,3 +164,10 @@ def test_berkas_rusak_pesan_tanpa_traceback(keluaran):
     assert "Traceback" not in keluaran["RUSAK_ERR"]
     assert keluaran["RUSAK_OK"] == ""  # pesan sukses unggahan sebelumnya tidak menyesatkan
     assert keluaran["RUSAK_UPLOAD"] == "2"
+
+
+def test_halaman_analisis_menampilkan_kualitas(keluaran):
+    assert keluaran["ANL_EXC"].startswith("0"), keluaran["ANL_EXC"]
+    assert "Laporan Kualitas Data" in keluaran["ANL_EXPANDER"]
+    assert "kurang dari 24 bulan" in keluaran["ANL_WARN"]
+    assert "Berkas tidak dapat dianalisis" not in keluaran["ANL_ERR"]

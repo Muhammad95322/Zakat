@@ -13,6 +13,7 @@ def generate_excel_report(
     forecast_df: pd.DataFrame = None,
     cleaning_log: list = None,
     forecast_meta: dict = None,
+    kualitas: dict = None,
 ) -> bytes:
     """Menghasilkan file Excel berformat rapi dan siap didownload."""
     output = io.BytesIO()
@@ -65,6 +66,11 @@ def generate_excel_report(
                 *[{"Butir": f"Versi {k}", "Nilai": v} for k, v in (forecast_meta.get("lingkungan") or {}).items()],
             ])
             netralkan_df(ringkas).to_excel(writer, sheet_name="Ringkasan Peramalan", index=False)
+
+        # Sheet 4c: Laporan kualitas data (baris valid, alasan dibuang, kategori tak dikenal, peringatan)
+        if kualitas:
+            from src.kualitas_data import tabel_kualitas
+            netralkan_df(tabel_kualitas(kualitas)).to_excel(writer, sheet_name="Kualitas Data", index=False)
 
         # Sheet 5: Log Pembersihan
         if cleaning_log:

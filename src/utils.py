@@ -1,6 +1,8 @@
 """Helper utilities untuk Zakat Insight: format rupiah, tanggal, dan kalkulasi umum."""
 from datetime import datetime, date
-from typing import Union, Optional
+import math
+import re
+from typing import Any, Optional, Union
 
 def format_rupiah(nominal: Union[int, float], singkat: bool = False) -> str:
     """Format angka ke Rupiah Indonesia.
@@ -67,52 +69,80 @@ def format_tanggal(tgl: Union[datetime, date, str]) -> str:
     return f"{tgl.day} {nama_bulan[tgl.month]} {tgl.year}"
 
 
-def parse_angka_indonesia(val: any) -> Optional[float]:
-    """Parse berbagai representasi angka string Indonesia ke float."""
-    if val is None:
+_RE_SPASI = re.compile(r"[\s   ']+")
+_RE_PENGALI = re.compile(r"^(?P<angka>[\d.,]+)(?P<satuan>jt|juta|rb|ribu|k|m|miliar|milyar|t|triliun)$")
+_PENGALI = {"jt": 1e6, "juta": 1e6, "rb": 1e3, "ribu": 1e3, "k": 1e3,
+            "m": 1e9, "miliar": 1e9, "milyar": 1e9, "t": 1e12, "triliun": 1e12}
+_RE_ANGKA_AKHIR = re.compile(r"^\d+(\.\d+)?$")
+
+
+def _normalisasi_pemisah(teks: str) -> str:
+    """Ubah '1.500.000,50' / '1,500,000.50' / '1.500' menjadi notasi float Python."""
+    titik, koma = teks.count("."), teks.count(",")
+    if titik and koma:
+        # pemisah yang muncul terakhir adalah desimal
+        if teks.rfind(",") > teks.rfind("."):
+            return teks.replace(".", "").replace(",", ".")
+        return teks.replace(",", "")
+    for sep, n in ((".", titik), (",", koma)):
+        if not n:
+            continue
+        bagian = teks.split(sep)
+        if n > 1:
+            # beberapa pemisah: harus pemisah ribuan yang konsisten (kelompok 3 digit)
+            if all(len(b) == 3 for b in bagian[1:]) and 1 <= len(bagian[0]) <= 3:
+                return teks.replace(sep, "")
+            return ""  # bukan angka yang valid, mis. '1.2.3'
+        # satu pemisah: 3 digit di belakang = ribuan (gaya Indonesia), selain itu desimal
+        if len(bagian[1]) == 3 and bagian[0] not in ("", "0"):
+            return teks.replace(sep, "")
+        return teks.replace(sep, ".")
+    return teks
+
+
+def parse_angka_indonesia(val: Any) -> Optional[float]:
+    """Parse berbagai representasi nominal (gaya Indonesia maupun internasional) ke float.
+
+    Diterima, antara lain: ``1500000``, ``1.500.000``, ``1,500,000``, ``1500000.50``,
+    ``1.500.000,50``, ``Rp 1.500.000,-``, ``IDR 1 500 000``, ``Rp 2,5 jt``, ``500 rb``,
+    ``1,5 M``, ``-50.000``, ``(50.000)`` (negatif gaya akuntansi), ``50.000-``.
+    Mengembalikan None untuk nilai kosong/bukan angka; tidak pernah melempar exception.
+    """
+    if val is None or isinstance(val, bool):
         return None
     if isinstance(val, (int, float)):
-        return float(val)
-        
-    teks = str(val).strip()
-    if not teks:
-        return None
-        
-    # Bersihkan prefix Rp dan spasi
-    teks = teks.replace("Rp", "").replace("rp", "").strip()
-    
-    # Deteksi singkatan juta/ribu/miliar
-    multiplier = 1.0
-    teks_lower = teks.lower()
-    if "jt" in teks_lower or "juta" in teks_lower:
-        multiplier = 1_000_000.0
-        teks = teks_lower.replace("juta", "").replace("jt", "").strip()
-    elif "rb" in teks_lower or "ribu" in teks_lower:
-        multiplier = 1_000.0
-        teks = teks_lower.replace("ribu", "").replace("rb", "").strip()
-    elif "m" in teks_lower or "miliar" in teks_lower or "milyar" in teks_lower:
-        multiplier = 1_000_000_000.0
-        teks = teks_lower.replace("miliar", "").replace("milyar", "").replace("m", "").strip()
-        
-    # Tangani pemisah ribuan titik dan desimal koma (misal: "1.500.000,50")
-    if "." in teks and "," in teks:
-        teks = teks.replace(".", "").replace(",", ".")
-    elif "." in teks:
-        # Bisa jadi "1.500.000" (ribuan) atau "1.5" (desimal)
-        parts = teks.split(".")
-        if len(parts) > 2 or (len(parts) == 2 and len(parts[1]) == 3):
-            teks = teks.replace(".", "")
-        else:
-            pass # desimal standar
-    elif "," in teks:
-        parts = teks.split(",")
-        if len(parts) == 2 and len(parts[1]) <= 2:
-            teks = teks.replace(",", ".")
-        else:
-            teks = teks.replace(",", "")
-            
+        f = float(val)
+        return None if math.isnan(f) or math.isinf(f) else f
     try:
-        return float(teks) * multiplier
-    except ValueError:
+        import numpy as np
+        if isinstance(val, np.generic):
+            return parse_angka_indonesia(val.item())
+    except Exception:  # pragma: no cover - numpy selalu tersedia
+        pass
+    teks = str(val).strip().lower()
+    if not teks or teks in ("nan", "none", "null", "-", "--"):
         return None
-
+    negatif = False
+    if teks.startswith("(") and teks.endswith(")"):
+        negatif, teks = True, teks[1:-1]
+    teks = teks.replace("rp.", "").replace("rp", "").replace("idr", "")
+    teks = _RE_SPASI.sub("", teks)
+    # akhiran gaya kuitansi: '1.500.000,-' / '1.500.000.-' / '1.500.000,00'
+    for akhir in (",-", ".-", ",--", "=-", "=", ",00-"):
+        if teks.endswith(akhir):
+            teks = teks[: -len(akhir)]
+    if teks.startswith("-"):
+        negatif, teks = not negatif, teks[1:]
+    elif teks.startswith("+"):
+        teks = teks[1:]
+    if teks.endswith("-"):  # '50.000-' (format kredit)
+        negatif, teks = not negatif, teks[:-1]
+    pengali = 1.0
+    m = _RE_PENGALI.match(teks)
+    if m:
+        pengali, teks = _PENGALI[m.group("satuan")], m.group("angka")
+    teks = _normalisasi_pemisah(teks)
+    if not _RE_ANGKA_AKHIR.match(teks):
+        return None
+    hasil = float(teks) * pengali
+    return -hasil if negatif else hasil

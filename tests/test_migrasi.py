@@ -41,7 +41,7 @@ def eng(tmp_path):
 
 def test_kosong_ke_terbaru_sama_dengan_model(eng):
     assert jalankan_migrasi(eng) == "skema dibuat dari migrasi"
-    assert _versi(eng) == "0002"
+    assert _versi(eng) == "0003"
     assert _beda_skema(eng) == []
 
 
@@ -57,7 +57,7 @@ def test_db_lama_create_all_dimigrasi_tanpa_kehilangan_data(eng):
                           "(:u,:t,'x@y.id','h','N','admin',1,1,0,'2024-01-01','2024-01-01')"), {"u": uid, "t": tid})
     assert "sesi_versi" not in {c["name"] for c in inspect(eng).get_columns("users")}
     assert jalankan_migrasi(eng) == "DB lama di-stamp lalu dimigrasi"
-    assert _versi(eng) == "0002"
+    assert _versi(eng) == "0003"
     with eng.connect() as c:
         assert c.execute(text("select email, sesi_versi from users")).one() == ("x@y.id", 0)
     assert _beda_skema(eng) == []
@@ -66,14 +66,14 @@ def test_db_lama_create_all_dimigrasi_tanpa_kehilangan_data(eng):
 def test_create_all_terbaru_tanpa_versi_di_stamp(eng):
     Base.metadata.create_all(eng)
     assert jalankan_migrasi(eng) == "DB lama di-stamp lalu dimigrasi"
-    assert _versi(eng) == "0002"
+    assert _versi(eng) == "0003"
 
 
 def test_idempoten_dan_downgrade(eng):
     jalankan_migrasi(eng)
-    assert jalankan_migrasi(eng) == "migrasi diperbarui" and _versi(eng) == "0002"
+    assert jalankan_migrasi(eng) == "migrasi diperbarui" and _versi(eng) == "0003"
     with eng.begin() as conn:
         command.downgrade(_cfg(conn), "0001")
     assert "sesi_versi" not in {c["name"] for c in inspect(eng).get_columns("users")}
     jalankan_migrasi(eng)
-    assert _versi(eng) == "0002"
+    assert _versi(eng) == "0003"

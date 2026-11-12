@@ -14,7 +14,10 @@ from src.auth.hashing import hash_password, verify_password, validate_password_s
 from src.auth.jwt_handler import create_access_token, create_refresh_token, decode_token
 from src.services.audit_service import catat_log
 from src.models.invitation import Invitation
-from src.services.email_service import kirim_email, email_verifikasi, email_reset_password, email_undangan
+from src.services.email_service import (
+    HasilKirim, email_akun_sudah_ada, email_reset_password, email_undangan, email_verifikasi, kirim_email,
+    kirim_email_latar, teks_polos,
+)
 from src.config import settings
 
 def hash_token(raw: str) -> str:
@@ -91,10 +94,8 @@ def register_lembaga(
     db.add(token_obj)
     db.commit()
     
-    # Kirim email verifikasi
-    verify_link = buat_tautan("verify_email", raw_token)
-    body = email_verifikasi(admin_user.nama_lengkap, verify_link)
-    kirim_email(admin_user.email, "Verifikasi Email Lembaga - Zakat Insight", body)
+    # Kirim email verifikasi (latar belakang; kegagalan dicatat di audit tanpa alamat email)
+    _kirim_verifikasi(admin_user, raw_token)
     
     catat_log(db, admin_user.id, "register_lembaga", tenant_id=tenant.id, detail={"lembaga": tenant.nama})
     return tenant, admin_user
@@ -187,11 +188,15 @@ def verifikasi_email(db: Session, token_str: str) -> bool:
     return True
 
 
-def request_reset_password(db: Session, email: str) -> bool:
-    """Mengirim tautan reset kata sandi ke email pengguna."""
+def request_reset_password(db: Session, email: str, ip: Optional[str] = None, ua: Optional[str] = None) -> bool:
+    """Kirim tautan reset sandi di latar belakang.
+
+    Halaman selalu menampilkan pesan yang sama, dan waktu respons tidak bergantung pada SMTP,
+    sehingga tidak membocorkan apakah email terdaftar. Nilai kembali hanya untuk tes/internal.
+    """
     email_clean = email.strip().lower()
     user = db.query(User).filter(User.email == email_clean).first()
-    if not user:
+    if not user or not user.is_active:
         return False
         
     raw_token = secrets.token_urlsafe(32)
@@ -206,14 +211,52 @@ def request_reset_password(db: Session, email: str) -> bool:
     db.commit()
     
     link = buat_tautan("reset_password", raw_token)
-    body = email_reset_password(user.nama_lengkap, link)
-    kirim_email(user.email, "Reset Kata Sandi - Zakat Insight", body)
-    
-    catat_log(db, user.id, "request_reset_password", tenant_id=user.tenant_id)
+    kirim_email_latar(user.email, "Reset Kata Sandi - Zakat Insight", email_reset_password(user.nama_lengkap, link),
+                      teks_polos("Reset kata sandi Zakat Insight", link, "1 jam"), jenis="reset_password",
+                      setelah=_audit_gagal_kirim(user.id, user.tenant_id, "reset_password"))
+    catat_log(db, user.id, "request_reset_password", tenant_id=user.tenant_id, ip=ip, ua=ua)
     return True
 
 
-def reset_password(db: Session, token_str: str, new_password: str) -> bool:
+def _audit_gagal_kirim(user_id, tenant_id, jenis: str):
+    """Callback: catat kegagalan kirim email di audit (tanpa alamat email) memakai sesi DB baru."""
+    def _cb(hasil: HasilKirim) -> None:
+        if hasil.berhasil:
+            return
+        from src.database import get_db
+        with get_db() as db2:
+            catat_log(db2, user_id, "email_gagal_kirim", tenant_id=tenant_id,
+                      detail={"jenis": jenis, "alasan": hasil.alasan})
+    return _cb
+
+
+def _kirim_verifikasi(user: User, raw_token: str):
+    link = buat_tautan("verify_email", raw_token)
+    return kirim_email_latar(user.email, "Verifikasi Email Lembaga - Zakat Insight",
+                             email_verifikasi(user.nama_lengkap, link),
+                             teks_polos("Verifikasi email Zakat Insight", link, "24 jam"), jenis="verifikasi",
+                             setelah=_audit_gagal_kirim(user.id, user.tenant_id, "verifikasi"))
+
+
+def kirim_ulang_verifikasi(db: Session, email: str, ip: Optional[str] = None, ua: Optional[str] = None) -> bool:
+    """Kirim ulang tautan verifikasi bila akun ada dan belum terverifikasi. Pesan di halaman selalu sama."""
+    user = db.query(User).filter(User.email == (email or "").strip().lower()).first()
+    if not user or user.is_verified or not user.is_active:
+        return False
+    now = utc_now()
+    db.query(Token).filter(Token.user_id == user.id, Token.jenis == "verifikasi_email",
+                           Token.used_at.is_(None)).update({Token.used_at: now}, synchronize_session=False)
+    raw = secrets.token_urlsafe(32)
+    db.add(Token(id=str(uuid.uuid4()), user_id=user.id, jenis="verifikasi_email", token_hash=hash_token(raw),
+                 expires_at=now + timedelta(hours=24)))
+    db.commit()
+    _kirim_verifikasi(user, raw)
+    catat_log(db, user.id, "kirim_ulang_verifikasi", tenant_id=user.tenant_id, ip=ip, ua=ua)
+    return True
+
+
+def reset_password(db: Session, token_str: str, new_password: str,
+                   ip: Optional[str] = None, ua: Optional[str] = None) -> bool:
     """Mereset password dengan token valid."""
     token_obj = db.query(Token).filter(
         Token.token_hash == hash_token(token_str or ""),
@@ -244,7 +287,7 @@ def reset_password(db: Session, token_str: str, new_password: str) -> bool:
     ).update({Token.used_at: now}, synchronize_session=False)
     db.commit()
     
-    catat_log(db, user.id, "reset_password_success", tenant_id=user.tenant_id)
+    catat_log(db, user.id, "reset_password_success", tenant_id=user.tenant_id, ip=ip, ua=ua)
     return True
 
 
@@ -283,13 +326,42 @@ def _wajib_admin_lembaga(oleh: dict, tenant_id: str) -> None:
         raise AksesDitolak("Hanya admin lembaga ini yang boleh melakukan aksi ini.")
 
 
-def register_tenant(db: Session, nama_lembaga: str, nama_admin: str, email: str, password: str):
-    """Pembungkus register_lembaga untuk halaman pendaftaran; None bila gagal validasi."""
+PESAN_DAFTAR_TERKIRIM = (
+    "Kami telah mengirim email ke alamat yang Anda masukkan. Ikuti petunjuk di dalamnya untuk melanjutkan. "
+    "Bila email tidak masuk dalam 10 menit, periksa folder spam lalu gunakan 'Kirim ulang email verifikasi' "
+    "di halaman masuk."
+)
+
+
+def register_tenant(db: Session, nama_lembaga: str, nama_admin: str, email: str, password: str,
+                    ip: Optional[str] = None, ua: Optional[str] = None):
+    """Pendaftaran dari halaman publik, tanpa membocorkan apakah email sudah terdaftar.
+
+    Email baru: lembaga + admin dibuat, email verifikasi dikirim. Email sudah terdaftar: TIDAK ada akun
+    dibuat; pemilik email diberi tahu lewat email, dan bcrypt tetap dijalankan agar waktu respons sama.
+    Keduanya mengembalikan nilai truthy dan halaman menampilkan PESAN_DAFTAR_TERKIRIM.
+    None hanya untuk galat validasi yang tidak terkait keberadaan akun (mis. sandi lemah).
+    """
+    email_clean = (email or "").strip().lower()
+    valid, _ = validate_password_strength(password)
+    if not valid:
+        return None
+    ada = db.query(User).filter(User.email == email_clean).first()
+    if ada:
+        hash_password(password)  # samakan waktu dengan pembuatan akun baru
+        kirim_email_latar(ada.email, "Percobaan pendaftaran dengan email Anda - Zakat Insight",
+                          email_akun_sudah_ada(ada.nama_lengkap, settings.APP_BASE_URL,
+                                               f"{settings.APP_BASE_URL}/?page=reset_password"),
+                          jenis="akun_sudah_ada")
+        catat_log(db, ada.id, "daftar_dengan_email_terdaftar", tenant_id=ada.tenant_id, ip=ip, ua=ua)
+        return {"status": "terkirim"}
     try:
-        return register_lembaga(db, nama_lembaga, email, password, nama_admin)
+        tenant, admin = register_lembaga(db, nama_lembaga, email_clean, password, nama_admin)
     except ValueError:
         db.rollback()
         return None
+    catat_log(db, admin.id, "daftar_lembaga_ip", tenant_id=tenant.id, ip=ip, ua=ua)
+    return {"status": "terkirim"}
 
 
 def change_password(db: Session, user_id: str, password_lama: str, password_baru: str) -> bool:
@@ -341,9 +413,13 @@ def kirim_undangan(db: Session, tenant_id: str, email: str, peran: str, oleh: di
     )
     db.add(undangan)
     db.commit()
-    kirim_email(email_clean, f"Undangan bergabung ke {tenant.nama} - Zakat Insight",
-                email_undangan(tenant.nama, peran, buat_tautan("terima_undangan", raw)))
-    catat_log(db, oleh.get("id"), "kirim_undangan", tenant_id=tenant_id, detail={"peran": peran})
+    tautan = buat_tautan("terima_undangan", raw)
+    hasil = kirim_email(email_clean, f"Undangan bergabung ke {tenant.nama} - Zakat Insight",
+                        email_undangan(tenant.nama, peran, tautan), teks_polos("Undangan Zakat Insight", tautan, "48 jam"),
+                        jenis="undangan")
+    undangan.email_terkirim = bool(hasil)  # atribut sementara untuk halaman Tim (tidak disimpan)
+    catat_log(db, oleh.get("id"), "kirim_undangan", tenant_id=tenant_id,
+              detail={"peran": peran, "email_terkirim": bool(hasil), **({} if hasil else {"alasan": hasil.alasan})})
     return undangan
 
 

@@ -12,6 +12,8 @@ reportlab>=4.2.2
 pytest>=8.2.0
 pytest-cov>=5.0.0
 pypdf>=4.0
+# Hanya untuk tes: sertifikat TLS server SMTP tiruan (tests/smtp_tiruan.py)
+cryptography>=42
 Pillow>=10.3.0
 sqlalchemy>=2.0.0
 # Driver PostgreSQL (docker-compose & Render); URL dinormalkan ke postgresql+psycopg://

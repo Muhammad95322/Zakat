@@ -28,6 +28,7 @@ from src.waktu import utc_now
 
 RETENSI_LOG_BAWAAN_HARI = 90
 RETENSI_LOG_PLATFORM_HARI = 365
+RETENSI_BATAS_LAJU_HARI = 1
 RETENSI_TOKEN_HARI = 30
 
 
@@ -120,5 +121,13 @@ def bersihkan_retensi(db: Session, sekarang: Optional[object] = None) -> Dict[st
     batas_token = sekarang - timedelta(days=RETENSI_TOKEN_HARI)
     token = db.query(Token).filter(Token.expires_at < batas_token).delete()
     undangan = db.query(Invitation).filter(Invitation.expires_at < batas_token).delete()
+    # IP & user agent disimpan seperlunya (UU PDP): dikosongkan setelah IP_RETENSI_HARI
+    ip_dianonimkan = db.query(AuditLog).filter(
+        AuditLog.created_at < sekarang - timedelta(days=settings.IP_RETENSI_HARI),
+        (AuditLog.ip_address.isnot(None)) | (AuditLog.user_agent.isnot(None)),
+    ).update({AuditLog.ip_address: None, AuditLog.user_agent: None}, synchronize_session=False)
     db.commit()
-    return {"log_audit": terhapus, "token": token, "undangan": undangan}
+    from src.services import batas_laju
+    laju = batas_laju.bersihkan(db, sekarang - timedelta(days=RETENSI_BATAS_LAJU_HARI))
+    return {"log_audit": terhapus, "token": token, "undangan": undangan, "ip_dianonimkan": ip_dianonimkan,
+            "batas_laju": laju}

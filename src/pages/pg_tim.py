@@ -150,8 +150,14 @@ def show():
                 from src.services.auth_service import kirim_undangan
 
                 with get_db() as db:
-                    kirim_undangan(db, tenant_id=tenant_id, email=email_undang.strip(), peran=peran_undang, oleh=user)
-                st.success(f"✅ Undangan terkirim ke **{email_undang}** dengan peran **{peran_undang}**.")
+                    undangan = kirim_undangan(db, tenant_id=tenant_id, email=email_undang.strip(), peran=peran_undang,
+                                              oleh=user)
+                if getattr(undangan, "email_terkirim", True):
+                    st.success(f"✅ Undangan terkirim ke **{email_undang}** dengan peran **{peran_undang}**.")
+                else:
+                    st.warning("⚠️ Undangan dibuat, tetapi email undangan GAGAL dikirim (server email tidak dapat "
+                               "dihubungi atau menolak). Batalkan undangan ini di tabel di bawah lalu coba lagi "
+                               "nanti, atau hubungi admin platform.")
             except (ValueError, PermissionError) as e:
                 st.error(f"❌ {e}")
             except ImportError as e:

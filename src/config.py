@@ -29,6 +29,7 @@ muat_env_file()
 # Nilai kunci bawaan/contoh yang TIDAK boleh dipakai di production.
 # nosec B105: kunci khusus development; production dengan kunci ini ditolak validate_security_settings
 DEFAULT_SECRET_KEY = "dev-secret-key-ganti-di-production-32chars"  # nosec B105
+DEFAULT_EMAIL_FROM = "noreply@zakatinsight.id"
 KNOWN_INSECURE_SECRET_KEYS = {
     DEFAULT_SECRET_KEY,
     "changeme",
@@ -73,13 +74,17 @@ class Settings:
     # Database
     DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR}/zakat_insight.db")
 
-    # Email
+    # Email (SMTP). TLS selalu wajib: "starttls" (port 587/2525) atau "ssl" (port 465, TLS sejak awal).
     EMAIL_ENABLED: bool = os.getenv("EMAIL_ENABLED", "false").lower() == "true"
-    EMAIL_SMTP_HOST: str = os.getenv("EMAIL_SMTP_HOST", "smtp.gmail.com")
+    EMAIL_SMTP_HOST: str = os.getenv("EMAIL_SMTP_HOST", "")
     EMAIL_SMTP_PORT: int = int(os.getenv("EMAIL_SMTP_PORT", "587"))
     EMAIL_SMTP_USER: str = os.getenv("EMAIL_SMTP_USER", "")
     EMAIL_SMTP_PASS: str = os.getenv("EMAIL_SMTP_PASS", "")
-    EMAIL_FROM: str = os.getenv("EMAIL_FROM", "noreply@zakatinsight.id")
+    EMAIL_SMTP_TLS: str = os.getenv("EMAIL_SMTP_TLS", "").strip().lower()  # kosong = ssl bila port 465
+    EMAIL_SMTP_TIMEOUT: float = float(os.getenv("EMAIL_SMTP_TIMEOUT", "15"))
+    # CA tambahan (PEM) untuk relay SMTP internal/uji; kosong = CA sistem
+    EMAIL_SMTP_CA_FILE: str = os.getenv("EMAIL_SMTP_CA_FILE", "")
+    EMAIL_FROM: str = os.getenv("EMAIL_FROM", DEFAULT_EMAIL_FROM)
 
     # Storage
     UPLOAD_DIR: Path = Path(os.getenv("UPLOAD_DIR", str(BASE_DIR / "uploads")))
@@ -95,6 +100,18 @@ class Settings:
     JWT_REFRESH_EXPIRE_DAYS: int = int(os.getenv("JWT_REFRESH_EXPIRE_DAYS", "30"))
     LOGIN_MAX_ATTEMPTS: int = int(os.getenv("LOGIN_MAX_ATTEMPTS", "5"))
     LOGIN_LOCKOUT_MINUTES: int = int(os.getenv("LOGIN_LOCKOUT_MINUTES", "15"))
+
+    # IP klien di belakang proxy (lihat src/middleware/ip_klien.py). Kosong = tidak ada proxy dipercaya.
+    # Render: "render" (jaringan privat + rentang IP Cloudflare).
+    PROXY_TEPERCAYA: str = os.getenv("PROXY_TEPERCAYA", "")
+    IP_HEADER_KLIEN: str = os.getenv("IP_HEADER_KLIEN", "")  # mis. CF-Connecting-IP; hanya dari proxy tepercaya
+    # Hari penyimpanan IP & user agent di log audit sebelum dikosongkan (UU PDP: simpan seperlunya)
+    IP_RETENSI_HARI: int = int(os.getenv("IP_RETENSI_HARI", "90"))
+    # Batas per IP "jumlah/detik": login (percobaan GAGAL), daftar, reset, verifikasi (semua permintaan)
+    BATAS_LOGIN_IP: str = os.getenv("BATAS_LOGIN_IP", "20/900")
+    BATAS_DAFTAR_IP: str = os.getenv("BATAS_DAFTAR_IP", "5/3600")
+    BATAS_RESET_IP: str = os.getenv("BATAS_RESET_IP", "5/3600")
+    BATAS_VERIFIKASI_IP: str = os.getenv("BATAS_VERIFIKASI_IP", "5/3600")
 
     # Alamat publik aplikasi untuk tautan di email (verifikasi, reset, undangan)
     APP_BASE_URL: str = os.getenv("APP_BASE_URL", "http://localhost:8501").rstrip("/")

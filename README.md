@@ -12,9 +12,12 @@
   - **Admin Lembaga**: Mengelola data, mengundang staf, dan memantau log audit.
   - **Staf**: Mengunggah berkas, menjalankan analisis, dan mengunduh laporan.
   - **Pembaca**: Mengakses dashboard analitik dan visualisasi (read-only).
-- 🧹 **Pembersihan Data Cerdas**:
-  - Deteksi sinonim kolom otomatis (*tanggal, nominal, muzaki, asnaf, dll.*).
-  - Parsing format angka Indonesia (`Rp 1.500.000`, `Rp 2,5 jt`, `500 rb`).
+- 🧹 **Impor Tahan Format & Pembersihan Data**:
+  - Deteksi judul kolom bersinonim (Indonesia/Inggris) dengan skor keyakinan; bila ragu, **wizard pemetaan kolom** menampilkan pratinjau 5 baris dan pilihan pengguna disimpan per lembaga.
+  - Tanggal ISO, `dd/mm/yyyy`, `12 Januari 2024`, `12-Jan-24`, serial Excel, campuran, urutan bulan/hari, dan koreksi bug lokal Excel. Nominal `Rp 1.500.000,-`, `1,500,000`, desimal, berspasi, satuan ribu/juta di judul kolom.
+  - Judul di atas header, sel digabung, baris total, kolom/baris kosong, sheet per tahun, lembar gabungan masuk/keluar, serta CSV koma/titik koma/tab dengan UTF-8, BOM, atau Windows-1252.
+  - **Laporan kualitas data** (baris valid, alasan pembuangan per baris, kategori tak dikenal, rentang tanggal, peringatan bila < 24 bulan) di UI, PDF, dan Excel.
+  - Hasil uji pada 62 variasi berkas sintetis (49 otomatis, 3 lewat wizard, 9 ditolak dengan pesan jelas, 1 gagal) beserta hal yang belum didukung ada di [`docs/HASIL_UJI_IMPOR.md`](docs/HASIL_UJI_IMPOR.md).
   - Hapus duplikat persis dan deteksi transaksi bernilai besar (*Outlier IQR*).
 - 📊 **Dashboard Analitik & Statistik**:
   - Indikator Kinerja Utama (Total Dana, Muzaki Unik, Rata-Rata Donasi).

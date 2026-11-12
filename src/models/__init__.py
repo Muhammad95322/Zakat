@@ -7,6 +7,7 @@ from src.models.upload import Upload
 from src.models.analysis_session import AnalysisSession
 from src.models.audit_log import AuditLog
 from src.models.invitation import Invitation
+from src.models.pemetaan_kolom import PemetaanKolom
 
 __all__ = [
     "Tenant",
@@ -16,4 +17,5 @@ __all__ = [
     "AnalysisSession",
     "AuditLog",
     "Invitation",
+    "PemetaanKolom",
 ]

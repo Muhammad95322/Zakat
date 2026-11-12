@@ -97,6 +97,35 @@ def _bagian_pemilihan_metode(pdf: FPDF, meta: dict) -> None:
     pdf.ln(3)
 
 
+def _bagian_kualitas_data(pdf: FPDF, lap: dict) -> None:
+    """Ringkasan kualitas data: baris valid, alasan dibuang, rentang, kategori tak dikenal, peringatan."""
+    from src.kualitas_data import tabel_kualitas
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.set_text_color(15, 118, 110)
+    pdf.cell(0, 10, "Kualitas Data Masukan", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(30, 41, 59)
+    pdf.set_font("Helvetica", "", 9)
+    pdf.multi_cell(0, 5, _aman(
+        f"{lap['baris_valid']:,} dari {lap['baris_dibaca']:,} baris data valid ({lap['persen_valid']:.1f}%). "
+        f"Rentang tanggal {lap['rentang_tanggal']} ({lap['rentang_bulan']} bulan).".replace(",", ".")
+    ), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(2)
+    lebar_butir = 55
+    for _, r in tabel_kualitas(lap).iterrows():
+        if r["Butir"] in ("Berkas",):
+            continue
+        tebal = r["Butir"] == "PERINGATAN"
+        pdf.set_font("Helvetica", "B" if tebal else "", 8)
+        y = pdf.get_y()
+        if y > pdf.h - 25:
+            pdf.add_page()
+            y = pdf.get_y()
+        pdf.multi_cell(lebar_butir, 4.5, _aman(r["Butir"].strip()), new_x="RIGHT", new_y="TOP")
+        pdf.multi_cell(0, 4.5, _aman(r["Nilai"]), new_x="LMARGIN", new_y="NEXT")
+        pdf.set_y(max(pdf.get_y(), y + 4.5) + 0.8)
+
+
 def generate_pdf_report(
     nama_lembaga: str,
     summary_stats: dict,
@@ -106,6 +135,7 @@ def generate_pdf_report(
     composition_df: Optional[pd.DataFrame] = None,
     forecast_df: Optional[pd.DataFrame] = None,
     forecast_meta: Optional[dict] = None,
+    kualitas: Optional[dict] = None,
 ) -> bytes:
     """Menghasilkan file PDF ringkasan eksekutif.
 
@@ -206,6 +236,10 @@ def generate_pdf_report(
         for png, judul in grafik:
             _sisip_grafik(pdf, png, judul)
         pdf.set_text_color(30, 41, 59)
+
+    # 5b. Kualitas data masukan
+    if kualitas:
+        _bagian_kualitas_data(pdf, kualitas)
 
     # 6. Pemilihan Metode Peramalan (tabel perbandingan MAPE backtest)
     if forecast_meta and forecast_meta.get("kode_metode"):

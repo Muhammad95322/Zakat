@@ -12,6 +12,8 @@ from src.services.upload_service import get_upload, get_uploads
 from src.services.tenant_service import get_tenant
 from src.loader import DataFileError
 from src.pipeline import siapkan_data
+from src.components.kualitas import tampilkan_kualitas
+from src.services.pemetaan_service import daftar_pemetaan
 from src.analysis import (
     get_summary_stats, get_trend_analysis, get_composition_analysis,
     get_distribution_analysis, get_statistical_tests
@@ -68,6 +70,7 @@ def show():
     # Ambil file
     with get_db() as db:
         upload_record = get_upload(db, selected_id, tenant_id)
+        pemetaan_lembaga = daftar_pemetaan(db, tenant_id)
         
     if not upload_record or not os.path.exists(upload_record.storage_path):
         st.error("File fisik tidak ditemukan pada media penyimpanan.")
@@ -78,7 +81,7 @@ def show():
         
     # Muat, validasi, dan bersihkan data; tampilkan pesan ramah jika berkas bermasalah
     try:
-        hasil = siapkan_data(file_bytes, upload_record.nama_file_asli)
+        hasil = siapkan_data(file_bytes, upload_record.nama_file_asli, pemetaan_lembaga=pemetaan_lembaga)
     except DataFileError as e:
         st.error(f"❌ Berkas tidak dapat dianalisis. {e}")
         return
@@ -94,6 +97,8 @@ def show():
     summary_clean = hasil["summary_himpun"]
     df_salur_clean = hasil["df_salur"]
     log_salur = hasil["log_salur"]
+    kualitas = hasil["kualitas"]
+    tampilkan_kualitas(kualitas, terbuka=bool(kualitas.get("peringatan")))
     
     # Sidebar Filters Global
     st.sidebar.markdown("### 🔍 Filter Analisis")
@@ -294,6 +299,7 @@ def show():
                 composition_df=comp.get("jenis_dana"),
                 forecast_df=forecast_df,
                 forecast_meta=forecast_meta,
+                kualitas=kualitas,
             )
             st.download_button(
                 "📑 Unduh Laporan Eksekutif PDF",
@@ -312,6 +318,7 @@ def show():
                 forecast_df=forecast_df,
                 cleaning_log=log_himpun,
                 forecast_meta=forecast_meta,
+                kualitas=kualitas,
             )
             st.download_button(
                 "📊 Unduh Laporan Lengkap Excel",

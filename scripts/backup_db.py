@@ -33,6 +33,9 @@ def _jalur_sqlite(url: str) -> Path:
 
 
 def backup(keluar: Path) -> Path:
+    if settings.PENYIMPANAN == "s3":
+        print("PERINGATAN: PENYIMPANAN=s3 -> berkas unggahan ada di bucket dan TIDAK ikut arsip ini. "
+              "Aktifkan versioning/replikasi bucket (lihat docs/PANDUAN_DEPLOY.md).", file=sys.stderr)
     keluar.mkdir(parents=True, exist_ok=True)
     cap = datetime.now().strftime("%Y%m%d-%H%M%S")
     url = normalisasi_url_db(settings.DATABASE_URL)

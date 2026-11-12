@@ -42,12 +42,14 @@ class TestT1TokenTidakDisimpanMentah:
         assert asv.reset_password(db, t2, "SandiBaru123") is True
         assert asv.reset_password(db, t1, "SandiLain123") is False
 
-    def test_production_tanpa_smtp_tidak_mencetak_token(self, db, admin_user, monkeypatch):
+    def test_production_tanpa_smtp_tidak_mencetak_token(self, db, admin_user, monkeypatch, caplog):
         monkeypatch.setattr(settings, "APP_ENV", "production")
-        keluaran, mentah = _minta_reset(db, admin_user)
-        assert mentah is None and "token=" not in keluaran
-        assert admin_user.email not in keluaran
-        assert "Tidak dikirim" in keluaran
+        with caplog.at_level("INFO"):
+            keluaran, mentah = _minta_reset(db, admin_user)
+        log = caplog.text
+        assert mentah is None and "token=" not in keluaran and "token=" not in log
+        assert admin_user.email not in keluaran and admin_user.email not in log
+        assert "email tidak dikirim: EMAIL_ENABLED=false" in log
 
     def test_tautan_memakai_app_base_url(self, db, admin_user, monkeypatch):
         monkeypatch.setattr(settings, "APP_BASE_URL", "https://zakat.contoh.id")

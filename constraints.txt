@@ -9,7 +9,9 @@ scipy==1.17.1
 pandas==3.1.1
 statsmodels==0.15.0
 patsy==1.0.3
-# Parsing tanggal/zona waktu memengaruhi pengelompokan bulanan
-python-dateutil==4.0.0
+# Parsing tanggal/zona waktu memengaruhi pengelompokan bulanan.
+# Dikunci di 2.9.x karena botocore/boto3 (penyimpanan S3) mensyaratkan python-dateutil<3. Keluaran
+# scripts/bandingkan_metode.py (bawaan, --transaksi 2000, --berkas data_contoh.xlsx) identik dengan 4.0.0.
+python-dateutil==2.9.0.post0
 tzdata==2026.6
 # matplotlib sengaja tidak dikunci: hanya memengaruhi gambar, bukan angka.

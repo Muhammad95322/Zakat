@@ -7,6 +7,7 @@ from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 
 import src.models  # noqa: F401
@@ -20,6 +21,20 @@ def _cfg(conn):
     cfg.set_main_option("script_location", str(AKAR / "migrasi"))
     cfg.attributes["connection"] = conn
     return cfg
+
+
+def _cfg_skrip(stdout=None):
+    cfg = Config(str(AKAR / "alembic.ini"), stdout=stdout) if stdout is not None else Config(str(AKAR / "alembic.ini"))
+    cfg.set_main_option("script_location", str(AKAR / "migrasi"))
+    return cfg
+
+
+def _head() -> str:
+    """Revisi head dibaca dari skrip migrasi (tidak mengunci angka versi di tes)."""
+    return ScriptDirectory.from_config(_cfg_skrip()).get_current_head()
+
+
+HEAD = _head()
 
 
 def _versi(eng):
@@ -41,7 +56,7 @@ def eng(tmp_path):
 
 def test_kosong_ke_terbaru_sama_dengan_model(eng):
     assert jalankan_migrasi(eng) == "skema dibuat dari migrasi"
-    assert _versi(eng) == "0003"
+    assert _versi(eng) == HEAD
     assert _beda_skema(eng) == []
 
 
@@ -57,7 +72,7 @@ def test_db_lama_create_all_dimigrasi_tanpa_kehilangan_data(eng):
                           "(:u,:t,'x@y.id','h','N','admin',1,1,0,'2024-01-01','2024-01-01')"), {"u": uid, "t": tid})
     assert "sesi_versi" not in {c["name"] for c in inspect(eng).get_columns("users")}
     assert jalankan_migrasi(eng) == "DB lama di-stamp lalu dimigrasi"
-    assert _versi(eng) == "0003"
+    assert _versi(eng) == HEAD
     with eng.connect() as c:
         assert c.execute(text("select email, sesi_versi from users")).one() == ("x@y.id", 0)
     assert _beda_skema(eng) == []
@@ -66,14 +81,29 @@ def test_db_lama_create_all_dimigrasi_tanpa_kehilangan_data(eng):
 def test_create_all_terbaru_tanpa_versi_di_stamp(eng):
     Base.metadata.create_all(eng)
     assert jalankan_migrasi(eng) == "DB lama di-stamp lalu dimigrasi"
-    assert _versi(eng) == "0003"
+    assert _versi(eng) == HEAD
 
 
 def test_idempoten_dan_downgrade(eng):
     jalankan_migrasi(eng)
-    assert jalankan_migrasi(eng) == "migrasi diperbarui" and _versi(eng) == "0003"
+    assert jalankan_migrasi(eng) == "migrasi diperbarui" and _versi(eng) == HEAD
     with eng.begin() as conn:
         command.downgrade(_cfg(conn), "0001")
     assert "sesi_versi" not in {c["name"] for c in inspect(eng).get_columns("users")}
     jalankan_migrasi(eng)
-    assert _versi(eng) == "0003"
+    assert _versi(eng) == HEAD
+
+
+def test_hanya_satu_kepala_migrasi():
+    """Dua PR yang sama-sama menambah migrasi dari induk yang sama menghasilkan dua head; Alembic lalu
+    menolak 'upgrade head'. Pastikan rantai migrasi linear."""
+    import io
+    skrip = ScriptDirectory.from_config(_cfg_skrip())
+    assert skrip.get_heads() == [HEAD]
+    keluaran = io.StringIO()
+    command.heads(_cfg_skrip(stdout=keluaran))
+    baris = [b for b in keluaran.getvalue().splitlines() if b.strip()]
+    assert len(baris) == 1 and baris[0].startswith(HEAD), baris
+    # setiap revisi selain akar punya tepat satu induk dan tidak ada cabang
+    for rev in skrip.walk_revisions():
+        assert not rev.branch_labels and not rev.is_merge_point

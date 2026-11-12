@@ -64,15 +64,23 @@ def _show_request_form():
             from src.database import get_db
             from src.services.auth_service import request_reset_password
 
-            with get_db() as db:
-                request_reset_password(db, email.strip().lower())
+            from src.middleware.ip_klien import ip_dan_ua
+            from src.services.batas_laju import pesan_terlalu_sering, periksa_dan_catat
 
-            # Selalu tampilkan pesan sukses untuk keamanan (tidak bocorkan apakah email terdaftar)
+            ip, ua = ip_dan_ua()
+            with get_db() as db:
+                boleh, tunggu = periksa_dan_catat(db, "reset", ip, ua=ua)
+                if not boleh:
+                    st.error(pesan_terlalu_sering(tunggu))
+                    return
+                request_reset_password(db, email.strip().lower(), ip=ip, ua=ua)
+
+            # Pesan & waktu respons SAMA untuk email terdaftar maupun tidak (email dikirim di latar belakang)
             st.success(
-                f"✅ Jika email **{email}** terdaftar di sistem kami, "
-                "tautan reset kata sandi telah dikirim. Silakan cek inbox Anda."
+                "✅ Jika email tersebut terdaftar, tautan reset kata sandi sedang dikirim. Tautan berlaku 1 jam."
             )
-            st.info("⏱️ Tautan berlaku selama 1 jam.")
+            st.info("Bila email tidak masuk dalam 10 menit, periksa folder spam lalu coba lagi. Bila tetap tidak "
+                    "masuk, server email mungkin sedang bermasalah; hubungi admin lembaga Anda.")
 
         except ImportError as e:
             st.error("Sistem sedang dalam pemeliharaan. Silakan coba beberapa saat lagi.")
@@ -115,7 +123,9 @@ def _show_new_password_form(token: str):
             from src.services.auth_service import reset_password
 
             with get_db() as db:
-                success = reset_password(db, token, new_password)
+                from src.middleware.ip_klien import ip_dan_ua
+                ip, ua = ip_dan_ua()
+                success = reset_password(db, token, new_password, ip=ip, ua=ua)
 
             if success:
                 st.success("✅ Kata sandi berhasil diubah! Silakan masuk dengan kata sandi baru.")

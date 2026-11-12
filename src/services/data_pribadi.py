@@ -8,7 +8,7 @@
 - bersihkan_retensi : menghapus log audit yang melewati masa retensi paket (bawaan 90 hari bila paket
                    tidak menetapkan), serta token/undangan kedaluwarsa > 30 hari.
 """
-import shutil
+import logging
 from datetime import timedelta
 from pathlib import Path
 from typing import Dict, Optional
@@ -16,6 +16,7 @@ from typing import Dict, Optional
 from sqlalchemy.orm import Session
 
 from src.config import settings
+from src.penyimpanan import kunci_dari_storage_path, penyimpanan
 from src.models.analysis_session import AnalysisSession
 from src.models.audit_log import AuditLog
 from src.models.invitation import Invitation
@@ -29,6 +30,7 @@ from src.waktu import utc_now
 
 RETENSI_LOG_BAWAAN_HARI = 90
 RETENSI_LOG_PLATFORM_HARI = 365
+RETENSI_BATAS_LAJU_HARI = 1
 RETENSI_TOKEN_HARI = 30
 
 
@@ -36,12 +38,31 @@ class AksesDitolak(PermissionError):
     pass
 
 
-def _folder_lembaga(tenant_id: str) -> Path:
-    akar = settings.UPLOAD_DIR.resolve()
-    folder = (akar / str(tenant_id)).resolve()
-    if akar not in folder.parents:  # cegah penghapusan di luar UPLOAD_DIR
-        raise ValueError("Jalur unggahan tidak valid.")
-    return folder
+logger = logging.getLogger("zakat.data_pribadi")
+
+
+def bersihkan_berkas(db: Session, sekarang=None) -> Dict[str, int]:
+    """Retensi berkas: (1) hapus unggahan lebih tua dari RETENSI_UNGGAHAN_HARI (0 = tidak pernah) beserta
+    berkasnya; (2) hapus berkas yatim di penyimpanan milik lembaga yang sudah tidak ada."""
+    sekarang = sekarang or utc_now()
+    hasil = {"unggahan_kedaluwarsa": 0, "berkas_yatim": 0}
+    store = penyimpanan()
+    if settings.RETENSI_UNGGAHAN_HARI > 0:
+        batas = sekarang - timedelta(days=settings.RETENSI_UNGGAHAN_HARI)
+        for up in db.query(Upload).filter(Upload.created_at < batas).all():
+            try:
+                store.hapus(kunci_dari_storage_path(up.storage_path or ""))
+            except ValueError:
+                pass
+            db.delete(up)
+            hasil["unggahan_kedaluwarsa"] += 1
+        db.commit()
+    lembaga = {str(t) for (t,) in db.query(Tenant.id)}
+    for kunci in store.daftar(""):
+        awal = kunci.split("/", 1)[0]
+        if "/" in kunci and awal not in lembaga:
+            hasil["berkas_yatim"] += store.hapus(kunci)
+    return hasil
 
 
 def hapus_lembaga(db: Session, tenant_id: str, oleh: dict, konfirmasi_slug: str) -> Dict[str, int]:
@@ -66,9 +87,12 @@ def hapus_lembaga(db: Session, tenant_id: str, oleh: dict, konfirmasi_slug: str)
     }
     db.query(Tenant).filter(Tenant.id == tenant_id).delete()
     db.commit()
-    folder = _folder_lembaga(tenant_id)
-    if folder.exists():
-        shutil.rmtree(folder)
+    # Berkas di penyimpanan (lokal atau S3) ikut dihapus; sisa yang gagal dibersihkan retensi
+    try:
+        jumlah["berkas"] = penyimpanan().hapus_awalan(str(tenant_id))
+    except Exception as e:
+        jumlah["berkas_gagal"] = 1
+        logger.error("gagal menghapus berkas lembaga di penyimpanan", extra={"galat": type(e).__name__})
     catat_log(db, oleh.get("id"), "hapus_lembaga", detail={"tenant_id": str(tenant_id), **jumlah})
     return jumlah
 
@@ -124,5 +148,13 @@ def bersihkan_retensi(db: Session, sekarang: Optional[object] = None) -> Dict[st
     batas_token = sekarang - timedelta(days=RETENSI_TOKEN_HARI)
     token = db.query(Token).filter(Token.expires_at < batas_token).delete()
     undangan = db.query(Invitation).filter(Invitation.expires_at < batas_token).delete()
+    # IP & user agent disimpan seperlunya (UU PDP): dikosongkan setelah IP_RETENSI_HARI
+    ip_dianonimkan = db.query(AuditLog).filter(
+        AuditLog.created_at < sekarang - timedelta(days=settings.IP_RETENSI_HARI),
+        (AuditLog.ip_address.isnot(None)) | (AuditLog.user_agent.isnot(None)),
+    ).update({AuditLog.ip_address: None, AuditLog.user_agent: None}, synchronize_session=False)
     db.commit()
-    return {"log_audit": terhapus, "token": token, "undangan": undangan}
+    from src.services import batas_laju
+    laju = batas_laju.bersihkan(db, sekarang - timedelta(days=RETENSI_BATAS_LAJU_HARI))
+    return {"log_audit": terhapus, "token": token, "undangan": undangan, "ip_dianonimkan": ip_dianonimkan,
+            "batas_laju": laju, **bersihkan_berkas(db, sekarang)}

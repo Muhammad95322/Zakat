@@ -111,6 +111,19 @@ docker-compose up -d --build
 
 ---
 
+## 🕶️ Menganonimkan Data Sebelum Dibagikan (untuk pengguna non-teknis)
+
+1. Pasang Python 3.11+ dan unduh repo ini ke laptop Anda (skrip berjalan tanpa internet).
+2. Buka terminal di folder repo, lalu jalankan sekali: `pip install -r requirements.txt`.
+3. Salin berkas Excel/CSV asli ke folder `data/private/` (folder ini tidak pernah masuk git).
+4. Jalankan: `python scripts/anonimkan_data.py data/private/NAMA_BERKAS.xlsx`.
+5. Hasilnya ada di `data/private/anon/NAMA_BERKAS_anon.xlsx`; berkas asli tidak diubah.
+6. Nama & ID donatur/mustahik diganti kode (mis. `MZK-1A2B3C...`); HP, alamat, email, NIK, rekening, catatan dihapus.
+7. Baca laporan di layar: kolom apa yang dihapus dan PERINGATAN kolom yang perlu Anda periksa sendiri.
+8. Hapus kolom tambahan bila perlu: `python scripts/anonimkan_data.py BERKAS.xlsx --hapus-kolom "Nama Kolom"`.
+9. Kunci rahasia dibuat sekali di `~/.zakat-insight/kunci_anonim`: cadangkan, jangan dibagikan; kunci yang sama = kode yang sama.
+10. Buka hasilnya dan periksa sekilas sebelum dibagikan. Jangan pernah memasukkan berkas asli maupun hasil ke git atau mengunggahnya ke tempat publik.
+
 ## 🧪 Menjalankan Pengujian (Testing)
 
 ```bash
@@ -200,12 +213,16 @@ Hasil audit keamanan dan statusnya ada di [`docs/AUDIT_KEAMANAN.md`](docs/AUDIT_
 ada di [`docs/DRAFT_KEBIJAKAN_PRIVASI.md`](docs/DRAFT_KEBIJAKAN_PRIVASI.md); itu **draf teknis yang wajib ditinjau ahli
 hukum** (UU PDP No. 27/2022). **Sebelum menyimpan data donatur sungguhan, lakukan uji penetrasi oleh pihak ketiga.**
 
+**Deploy ke Render:** ikuti [`docs/PANDUAN_DEPLOY.md`](docs/PANDUAN_DEPLOY.md) (langkah demi langkah untuk
+non-teknis, termasuk biaya, cadangan, dan apa yang belum diverifikasi). Di `APP_ENV=production` aplikasi **menolak
+start** sampai rahasia, PostgreSQL, `APP_BASE_URL` https, SMTP, dan penyimpanan permanen dikonfigurasi.
+
 **Email.**
-- **Belum ada pengirim email bawaan.** Email hanya terkirim bila SMTP dikonfigurasi (`EMAIL_ENABLED=true`,
-  `EMAIL_SMTP_HOST/PORT/USER/PASS`, `EMAIL_FROM`).
+- Email dikirim lewat SMTP dengan **TLS wajib** (`EMAIL_SMTP_*`, `EMAIL_FROM`); wajib di production.
 - **Tanpa SMTP di development:** isi email (termasuk tautan) dicetak ke terminal sebagai mode pengembangan.
-- **Tanpa SMTP di production:** email tidak dikirim dan isinya tidak dicetak. Akibatnya pendaftar baru tidak dapat
-  memverifikasi email, reset sandi tidak berfungsi, dan undangan tidak sampai.
+- Reset sandi, verifikasi, dan pendaftaran menampilkan pesan yang sama apakah email terdaftar atau tidak; email
+  dikirim di latar belakang sehingga waktu respons tidak membocorkan keberadaan akun.
+- **Paket gratis Render memblokir port SMTP**; lihat panduan deploy.
 - **`APP_BASE_URL`** harus berisi alamat publik aplikasi, untuk tautan di email.
 
 **Pembayaran.** Halaman Paket Langganan **hanya informasi**: tidak terhubung ke penyedia pembayaran mana pun. Paket

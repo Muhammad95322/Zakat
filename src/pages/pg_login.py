@@ -50,6 +50,16 @@ def show():
                 from src.services.auth_service import login
                 from src.auth.session import set_current_user
                 from src.middleware.rate_limiter import RateLimiter
+                from src.middleware.ip_klien import ip_dan_ua
+                from src.services import batas_laju
+                from src.services.audit_service import catat_log
+
+                ip, ua = ip_dan_ua()
+                with get_db() as db:
+                    boleh_ip, tunggu_ip = batas_laju.periksa(db, "login", ip)
+                if not boleh_ip:
+                    st.error(batas_laju.pesan_terlalu_sering(tunggu_ip))
+                    return
 
                 limiter = RateLimiter()
                 is_allowed, wait_secs = limiter.check_rate_limit(
@@ -64,7 +74,7 @@ def show():
                     return
 
                 with get_db() as db:
-                    result = login(db, email, password)
+                    result = login(db, email, password, ip=ip, ua=ua)
                     if result:
                         access_token, refresh_token = result
                         # Decode token untuk dapat info user
@@ -87,8 +97,29 @@ def show():
                             st.rerun()
                     else:
                         limiter.record_failure(f"login:{email}")
+                        batas_laju.catat(db, "login", ip, ua=ua)
+                        catat_log(db, None, "login_gagal", ip=ip, ua=ua)  # tanpa email & sandi
                         st.error(
                             "❌ Email atau kata sandi salah. Periksa kembali dan coba lagi."
                         )
-            except ImportError as e:
+            except ImportError:
                 st.error("Sistem sedang dalam pemeliharaan. Silakan coba beberapa saat lagi.")
+
+        with st.expander("Belum menerima email verifikasi?"):
+            with st.form("form_kirim_ulang_verifikasi"):
+                email_v = st.text_input("Email akun", key="email_kirim_ulang")
+                kirim_v = st.form_submit_button("Kirim ulang email verifikasi")
+            if kirim_v and email_v.strip():
+                from src.database import get_db
+                from src.middleware.ip_klien import ip_dan_ua
+                from src.services import batas_laju
+                from src.services.auth_service import kirim_ulang_verifikasi
+                ip, ua = ip_dan_ua()
+                with get_db() as db:
+                    boleh, tunggu = batas_laju.periksa_dan_catat(db, "verifikasi", ip, ua=ua)
+                    if not boleh:
+                        st.error(batas_laju.pesan_terlalu_sering(tunggu))
+                    else:
+                        kirim_ulang_verifikasi(db, email_v, ip=ip, ua=ua)
+                        st.success("Jika email tersebut terdaftar dan belum terverifikasi, tautan verifikasi baru "
+                                   "sedang dikirim. Periksa juga folder spam.")

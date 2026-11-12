@@ -8,6 +8,7 @@ from src.models.analysis_session import AnalysisSession
 from src.models.audit_log import AuditLog
 from src.models.invitation import Invitation
 from src.models.pemetaan_kolom import PemetaanKolom
+from src.models.batas_laju import BatasLaju
 
 __all__ = [
     "Tenant",
@@ -18,4 +19,5 @@ __all__ = [
     "AuditLog",
     "Invitation",
     "PemetaanKolom",
+    "BatasLaju",
 ]

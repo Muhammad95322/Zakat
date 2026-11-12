@@ -1,37 +1,90 @@
-services:
-  - type: web
-    name: zakat-insight
-    env: python
-    plan: free
-    buildCommand: pip install -r requirements.txt -c constraints.txt
-    # Validasi kunci production -> migrasi basis data (Alembic) -> aplikasi
-    startCommand: python scripts/validate_config.py && python -c 'from src.database import init_db; init_db()' && streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+# Blueprint Render untuk Zakat Insight. Panduan langkah demi langkah: docs/PANDUAN_DEPLOY.md
+#
+# Pilihan paket (alasan di panduan):
+# - Web "starter" (berbayar): paket gratis memblokir port SMTP 25/465/587 dan tidur setelah 15 menit tanpa trafik.
+# - Postgres berbayar: Postgres gratis kedaluwarsa 30 hari setelah dibuat (lalu dihapus setelah masa tenggang).
+# - Unggahan disimpan di penyimpanan objek kompatibel S3 (disk kontainer Render bersifat sementara).
+#
+# Aplikasi MENOLAK start (scripts/validate_config.py) sampai semua variabel "sync: false" di bawah diisi.
+
+envVarGroups:
+  - name: zakat-insight-bersama
     envVars:
       - key: APP_ENV
         value: production
       - key: APP_SECRET_KEY
         generateValue: true
+      - key: PENYIMPANAN
+        value: s3
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ENDPOINT_URL      # kosong untuk AWS S3; isi untuk Cloudflare R2/Backblaze B2
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: IP_RETENSI_HARI
+        value: "90"
+      - key: LOG_FORMAT
+        value: json
+
+services:
+  - type: web
+    name: zakat-insight
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt -c constraints.txt
+    # Validasi konfigurasi production -> migrasi basis data (Alembic) -> aplikasi
+    startCommand: python scripts/validate_config.py && python -c 'from src.database import init_db; init_db()' && streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+    healthCheckPath: /_stcore/health
+    envVars:
+      - fromGroup: zakat-insight-bersama
       - key: DATABASE_URL
         fromDatabase:
           name: zakat-insight-db
           property: connectionString
-      # Alamat publik layanan, untuk tautan verifikasi/reset/undangan di email (isi di dashboard Render)
+      # Alamat publik https layanan, untuk tautan verifikasi/reset/undangan di email
       - key: APP_BASE_URL
         sync: false
-      # Tanpa SMTP, email TIDAK dikirim: pendaftar tidak dapat verifikasi dan reset sandi tidak berfungsi.
-      # Isi EMAIL_SMTP_* (sync: false) lalu set EMAIL_ENABLED=true untuk production sungguhan.
+      # IP klien di belakang proxy Render (jaringan privat + Cloudflare). Periksa di ?page=kesehatan setelah deploy.
+      - key: PROXY_TEPERCAYA
+        value: render
       - key: EMAIL_ENABLED
-        value: false
+        value: "true"
       - key: EMAIL_SMTP_HOST
         sync: false
+      - key: EMAIL_SMTP_PORT
+        value: "587"
       - key: EMAIL_SMTP_USER
         sync: false
       - key: EMAIL_SMTP_PASS
         sync: false
+      - key: EMAIL_FROM
+        sync: false
+      # Opsional: pemantau galat (kosong = nonaktif)
+      - key: SENTRY_DSN
+        sync: false
+
+  # Retensi harian: log audit lewat masa simpan, IP/UA > IP_RETENSI_HARI, token, batas laju, berkas yatim.
+  - type: cron
+    name: zakat-insight-retensi
+    runtime: python
+    plan: starter
+    schedule: "17 19 * * *"   # 02:17 WIB
+    buildCommand: pip install -r requirements.txt -c constraints.txt
+    startCommand: python scripts/bersihkan_retensi.py
+    envVars:
+      - fromGroup: zakat-insight-bersama
+      - key: DATABASE_URL
+        fromDatabase:
+          name: zakat-insight-db
+          property: connectionString
 
 databases:
   - name: zakat-insight-db
-    plan: free
+    plan: basic-256mb
     databaseName: zakat_insight
     user: zakat
-

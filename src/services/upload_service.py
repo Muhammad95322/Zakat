@@ -1,4 +1,5 @@
 """Layanan pengelolaan file unggahan, kuota storage, dan isolasi tenant."""
+import logging
 import os
 import uuid
 from pathlib import Path
@@ -12,6 +13,8 @@ from src.middleware.security import validasi_file_upload, sanitasi_nama_file
 from src.services.audit_service import catat_log
 from src.config import settings
 from src.loader import DataFileError
+
+logger = logging.getLogger(__name__)
 
 def cek_kuota(db: Session, tenant_id: str, ukuran_bytes: int) -> Tuple[bool, str]:
     """Cek apakah penambahan file masih dalam batas kuota paket."""
@@ -41,22 +44,33 @@ def simpan_upload(
     tenant_id: str,
     user_id: str,
     file_bytes: bytes,
-    nama_file_asli: str
+    nama_file_asli: str,
+    pemetaan: Optional[dict] = None,
+    pemetaan_lembaga: Optional[list] = None,
+    hasil_siap: Optional[dict] = None,
 ) -> Tuple[Optional[Upload], str]:
-    """Menyimpan file upload baru dengan validasi dan isolasi penyimpanan."""
+    """Menyimpan file upload baru dengan validasi dan isolasi penyimpanan.
+
+    Args:
+        pemetaan / pemetaan_lembaga: diteruskan ke ``siapkan_data`` saat memvalidasi isi berkas.
+        hasil_siap: hasil ``siapkan_data`` yang sudah dihitung pemanggil untuk berkas yang sama
+            (mis. halaman unggah), agar berkas besar tidak dibersihkan dua kali.
+    """
     nama_bersih = sanitasi_nama_file(nama_file_asli)
     is_valid, pesan = validasi_file_upload(nama_bersih, file_bytes)
     if not is_valid:
         return None, pesan
         
     # Validasi isi berkas sejak awal agar berkas rusak/kosong tidak tersimpan
-    try:
-        from src.pipeline import siapkan_data
-        siapkan_data(file_bytes, nama_bersih)
-    except DataFileError as e:
-        return None, str(e)
-    except Exception:
-        return None, "Berkas tidak dapat dibaca. Pastikan berkas sesuai template, lalu coba lagi."
+    if hasil_siap is None:
+        try:
+            from src.pipeline import siapkan_data
+            hasil_siap = siapkan_data(file_bytes, nama_bersih, pemetaan=pemetaan, pemetaan_lembaga=pemetaan_lembaga)
+        except DataFileError as e:
+            return None, str(e)
+        except Exception:
+            logger.exception("Gagal memvalidasi berkas unggahan")
+            return None, "Berkas tidak dapat dibaca. Pastikan berkas sesuai template, lalu coba lagi."
 
     bisa_unggah, pesan_kuota = cek_kuota(db, tenant_id, len(file_bytes))
     if not bisa_unggah:
@@ -84,7 +98,8 @@ def simpan_upload(
             ukuran_bytes=len(file_bytes),
             jenis_file=ext,
             status="siap",
-            storage_path=str(full_path)
+            storage_path=str(full_path),
+            **_ringkasan_isi(hasil_siap),
         )
         db.add(upload)
         db.commit()
@@ -95,11 +110,27 @@ def simpan_upload(
             detail={"file": nama_bersih, "ukuran": len(file_bytes)}
         )
         return upload, "File berhasil diunggah."
-    except Exception as e:
+    except Exception:
         db.rollback()
         if full_path.exists():
             full_path.unlink()
-        return None, f"Terjadi kesalahan saat menyimpan file: {e}"
+        logger.exception("Gagal menyimpan berkas unggahan")
+        return None, "Terjadi kesalahan saat menyimpan file. Coba lagi; bila berulang, hubungi admin."
+
+
+def _ringkasan_isi(hasil: Optional[dict]) -> dict:
+    """Periode & jumlah baris dari hasil siapkan_data untuk kolom metadata Upload."""
+    try:
+        df = hasil["df_himpun"]
+        ds = hasil.get("df_salur")
+        return {
+            "periode_mulai": df["tanggal"].min().date(),
+            "periode_selesai": df["tanggal"].max().date(),
+            "jumlah_baris_penghimpunan": int(len(df)),
+            "jumlah_baris_penyaluran": int(len(ds)) if ds is not None else 0,
+        }
+    except Exception:
+        return {}
 
 
 def get_uploads(db: Session, tenant_id: str) -> List[Upload]:

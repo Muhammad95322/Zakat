@@ -113,7 +113,7 @@ def chart_lorenz(lorenz_x: list, lorenz_y: list, gini_val: float) -> go.Figure:
 
 
 def chart_forecasting(monthly_df: pd.DataFrame, forecast_df: pd.DataFrame,
-                      label_selang: Optional[str] = "Selang proyeksi") -> go.Figure:
+                      label_selang: Optional[str] = "Selang proyeksi", terkoreksi: bool = False) -> go.Figure:
     """Grafik historis + proyeksi peramalan ke depan, dengan selang bila tersedia."""
     fig = go.Figure()
     
@@ -167,8 +167,16 @@ def chart_forecasting(monthly_df: pd.DataFrame, forecast_df: pd.DataFrame,
             mode="lines+markers",
             line=dict(color="#f59e0b", width=3, dash="dot"),
             marker=dict(size=6, color="#d97706"),
-            name="Proyeksi Prediksi"
+            name="Proyeksi (terkoreksi bias)" if terkoreksi else "Proyeksi Prediksi"
         ))
+        if terkoreksi and "proyeksi_tanpa_koreksi" in forecast_df:
+            fig.add_trace(go.Scatter(
+                x=forecast_df["periode"],
+                y=forecast_df["proyeksi_tanpa_koreksi"],
+                mode="lines",
+                line=dict(color="#94a3b8", width=1, dash="dot"),
+                name="Sebelum koreksi bias"
+            ))
         
     fig.update_layout(
         title="Proyeksi Penerimaan Dana ZIS (6 - 12 Bulan ke Depan)",

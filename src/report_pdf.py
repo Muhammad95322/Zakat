@@ -6,7 +6,9 @@ from typing import Optional
 import pandas as pd
 from fpdf import FPDF
 
-from src.forecasting import format_mape, format_mape_lengkap, ringkasan_catatan_metode, tabel_perbandingan
+from src.forecasting import (
+    format_mape, format_mape_lengkap, ringkasan_catatan_metode, ringkasan_koreksi_bias, tabel_perbandingan,
+)
 from src.utils import format_rupiah, format_tanggal
 
 
@@ -70,6 +72,17 @@ def _bagian_pemilihan_metode(pdf: FPDF, meta: dict) -> None:
     if meta.get("catatan_stabilitas"):
         pdf.set_text_color(51, 65, 85)
         pdf.multi_cell(0, 5, _aman("CATATAN: " + meta["catatan_stabilitas"]), new_x="LMARGIN", new_y="NEXT")
+    if meta.get("koreksi_bias"):
+        pdf.set_text_color(51, 65, 85)
+        pdf.multi_cell(0, 5, _aman("KOREKSI BIAS: " + ringkasan_koreksi_bias(meta)), new_x="LMARGIN", new_y="NEXT")
+        faktor = [f for f in meta["koreksi_bias"].get("faktor_per_horizon", [])]
+        if meta["koreksi_bias"].get("dipakai") and faktor:
+            pdf.multi_cell(0, 5, _aman("Faktor per bulan proyeksi: " + ", ".join(
+                f"ke-{f['langkah']}: {f['faktor']:.2f}" for f in faktor)), new_x="LMARGIN", new_y="NEXT")
+    konsistensi = (meta.get("konsistensi_selang") or {}).get("peringatan")
+    if konsistensi:
+        pdf.set_text_color(180, 83, 9)
+        pdf.multi_cell(0, 5, _aman("PERINGATAN: " + konsistensi), new_x="LMARGIN", new_y="NEXT")
     tabel = tabel_perbandingan(meta)
     if not tabel.empty:
         pdf.ln(1)
@@ -84,6 +97,35 @@ def _bagian_pemilihan_metode(pdf: FPDF, meta: dict) -> None:
     pdf.ln(3)
 
 
+def _bagian_kualitas_data(pdf: FPDF, lap: dict) -> None:
+    """Ringkasan kualitas data: baris valid, alasan dibuang, rentang, kategori tak dikenal, peringatan."""
+    from src.kualitas_data import tabel_kualitas
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.set_text_color(15, 118, 110)
+    pdf.cell(0, 10, "Kualitas Data Masukan", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(30, 41, 59)
+    pdf.set_font("Helvetica", "", 9)
+    pdf.multi_cell(0, 5, _aman(
+        f"{lap['baris_valid']:,} dari {lap['baris_dibaca']:,} baris data valid ({lap['persen_valid']:.1f}%). "
+        f"Rentang tanggal {lap['rentang_tanggal']} ({lap['rentang_bulan']} bulan).".replace(",", ".")
+    ), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(2)
+    lebar_butir = 55
+    for _, r in tabel_kualitas(lap).iterrows():
+        if r["Butir"] in ("Berkas",):
+            continue
+        tebal = r["Butir"] == "PERINGATAN"
+        pdf.set_font("Helvetica", "B" if tebal else "", 8)
+        y = pdf.get_y()
+        if y > pdf.h - 25:
+            pdf.add_page()
+            y = pdf.get_y()
+        pdf.multi_cell(lebar_butir, 4.5, _aman(r["Butir"].strip()), new_x="RIGHT", new_y="TOP")
+        pdf.multi_cell(0, 4.5, _aman(r["Nilai"]), new_x="LMARGIN", new_y="NEXT")
+        pdf.set_y(max(pdf.get_y(), y + 4.5) + 0.8)
+
+
 def generate_pdf_report(
     nama_lembaga: str,
     summary_stats: dict,
@@ -93,6 +135,7 @@ def generate_pdf_report(
     composition_df: Optional[pd.DataFrame] = None,
     forecast_df: Optional[pd.DataFrame] = None,
     forecast_meta: Optional[dict] = None,
+    kualitas: Optional[dict] = None,
 ) -> bytes:
     """Menghasilkan file PDF ringkasan eksekutif.
 
@@ -181,7 +224,8 @@ def generate_pdf_report(
     grafik = [
         (chart_tren_png(monthly_df) if monthly_df is not None else None, "Tren penghimpunan bulanan"),
         (chart_komposisi_png(composition_df) if composition_df is not None else None, "Komposisi per jenis dana"),
-        (chart_peramalan_png(monthly_df, forecast_df, (forecast_meta or {}).get("selang_label"))
+        (chart_peramalan_png(monthly_df, forecast_df, (forecast_meta or {}).get("selang_label"),
+                             ((forecast_meta or {}).get("koreksi_bias") or {}).get("dipakai", False))
          if forecast_df is not None else None, "Proyeksi penghimpunan"),
     ]
     if any(png for png, _ in grafik):
@@ -192,6 +236,10 @@ def generate_pdf_report(
         for png, judul in grafik:
             _sisip_grafik(pdf, png, judul)
         pdf.set_text_color(30, 41, 59)
+
+    # 5b. Kualitas data masukan
+    if kualitas:
+        _bagian_kualitas_data(pdf, kualitas)
 
     # 6. Pemilihan Metode Peramalan (tabel perbandingan MAPE backtest)
     if forecast_meta and forecast_meta.get("kode_metode"):

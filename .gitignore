@@ -56,6 +56,9 @@ pnpm-debug.log*
 # Backup berisi data donatur
 backups/
 
+# Berkas sintetis hasil scripts/buat_data_kotor.py (dibuat ulang kapan saja)
+data/sintetis_kotor/
+
 # DATA DONATUR/MUSTAHIK: repo ini publik. Data asli dan hasil anonimisasi TIDAK boleh masuk git.
 # Hanya contoh sintetis di data/sample/ dan template di data/template/ yang boleh dilacak.
 # Pemeriksaan CI: scripts/cek_berkas_data.py (job "keamanan").

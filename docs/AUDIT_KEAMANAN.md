@@ -41,6 +41,7 @@ dibuktikan sepenuhnya ditandai **dugaan**. Kolom *Status* diperbarui saat perbai
 | F4 | Fungsional | Tidak ada penghapusan tuntas lembaga/pengguna; retensi log tidak ditegakkan | Diperbaiki |
 | S10 | Sedang | Render paket gratis: disk web service sementara, unggahan hilang saat redeploy | Belum (butuh keputusan/biaya pemilik) |
 | R8 | Rendah | Log audit tidak mencatat IP/user agent asli (nilai tetap 127.0.0.1) | Belum |
+| S3b | Sedang | Lanjutan S3: login ke akun **terkunci** langsung ditolak tanpa bcrypt (0,6 ms vs ~307 ms), sehingga email terdaftar dapat dikenali | Diperbaiki |
 
 Tidak ada temuan **kritis** yang terbukti (misalnya akses lintas lembaga atau lompat peran tanpa autentikasi).
 
@@ -249,3 +250,14 @@ Tidak ada temuan **kritis** yang terbukti (misalnya akses lintas lembaga atau lo
    pemrosesan data dengan lembaga dan lokasi server.
 3. Konfigurasi SMTP, persistent storage, backup terenkripsi terjadwal di luar server, dan cron
    `scripts/bersihkan_retensi.py`.
+
+### S3b — Sedang — Oracle waktu pada akun terkunci (ditemukan setelah PR #6)
+- **Bukti (sebelum):** median 7 percobaan: email tidak ada 306,5 ms; sandi salah 307,2 ms; **akun terkunci 0,6 ms**.
+  Jalur `locked_until > now` di `auth_service.login` mengembalikan `None` sebelum bcrypt. Perbaikan S3 di PR #6 hanya
+  menutup jalur email tidak ada dan akun nonaktif.
+- **Perbaikan:** jalur terkunci menjalankan `verifikasi_tiruan`; penolakan dicatat hanya di log audit
+  (`login_ditolak_terkunci`); hash tiruan dibuat saat modul dimuat (bukan pada panggilan pertama).
+- **Sesudah:** 312,3 / 307,7 / 308,1 ms. Pesan di UI identik untuk ketiga jalur (diuji lewat formulir login AppTest).
+- **Tes:** `test_waktu_login_seragam_tiga_jalur` (toleransi: yang lebih longgar dari 30% atau 20 ms),
+  `test_ui_pesan_identik_tiga_jalur`, `test_akun_terkunci_tercatat_hanya_di_log_audit`. Uji mutasi: menghapus
+  `verifikasi_tiruan` dari jalur terkunci membuat tes waktu gagal (terkunci 0,8 ms).

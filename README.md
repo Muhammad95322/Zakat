@@ -197,12 +197,16 @@ Hasil audit keamanan dan statusnya ada di [`docs/AUDIT_KEAMANAN.md`](docs/AUDIT_
 ada di [`docs/DRAFT_KEBIJAKAN_PRIVASI.md`](docs/DRAFT_KEBIJAKAN_PRIVASI.md); itu **draf teknis yang wajib ditinjau ahli
 hukum** (UU PDP No. 27/2022). **Sebelum menyimpan data donatur sungguhan, lakukan uji penetrasi oleh pihak ketiga.**
 
+**Deploy ke Render:** ikuti [`docs/PANDUAN_DEPLOY.md`](docs/PANDUAN_DEPLOY.md) (langkah demi langkah untuk
+non-teknis, termasuk biaya, cadangan, dan apa yang belum diverifikasi). Di `APP_ENV=production` aplikasi **menolak
+start** sampai rahasia, PostgreSQL, `APP_BASE_URL` https, SMTP, dan penyimpanan permanen dikonfigurasi.
+
 **Email.**
-- **Belum ada pengirim email bawaan.** Email hanya terkirim bila SMTP dikonfigurasi (`EMAIL_ENABLED=true`,
-  `EMAIL_SMTP_HOST/PORT/USER/PASS`, `EMAIL_FROM`).
+- Email dikirim lewat SMTP dengan **TLS wajib** (`EMAIL_SMTP_*`, `EMAIL_FROM`); wajib di production.
 - **Tanpa SMTP di development:** isi email (termasuk tautan) dicetak ke terminal sebagai mode pengembangan.
-- **Tanpa SMTP di production:** email tidak dikirim dan isinya tidak dicetak. Akibatnya pendaftar baru tidak dapat
-  memverifikasi email, reset sandi tidak berfungsi, dan undangan tidak sampai.
+- Reset sandi, verifikasi, dan pendaftaran menampilkan pesan yang sama apakah email terdaftar atau tidak; email
+  dikirim di latar belakang sehingga waktu respons tidak membocorkan keberadaan akun.
+- **Paket gratis Render memblokir port SMTP**; lihat panduan deploy.
 - **`APP_BASE_URL`** harus berisi alamat publik aplikasi, untuk tautan di email.
 
 **Pembayaran.** Halaman Paket Langganan **hanya informasi**: tidak terhubung ke penyedia pembayaran mana pun. Paket

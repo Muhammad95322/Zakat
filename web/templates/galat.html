@@ -1,0 +1,11 @@
+{% extends "dasar.html" %}
+{% block judul %}{{ judul }} | Zakat Insight{% endblock %}
+{% block isi %}
+<section class="lembar lembar--sempit galat">
+  <h1>{{ judul }}</h1>
+  <p>{{ pesan }}</p>
+  <p class="aksi">
+    {% if pengguna %}<a class="tombol" href="/beranda">Buka beranda</a>{% else %}<a class="tombol" href="/masuk">Masuk</a>{% endif %}
+  </p>
+</section>
+{% endblock %}

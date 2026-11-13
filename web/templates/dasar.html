@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block judul %}Zakat Insight{% endblock %}</title>
+<link rel="preload" href="/statis/fonts/plus-jakarta-sans-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/statis/css/situs.css">
+<link rel="icon" href="/statis/ikon.svg" type="image/svg+xml">
+{% block kepala %}{% endblock %}
+</head>
+<body class="{% block kelas_body %}{% endblock %}">
+<a class="lompat" href="#isi">Lompat ke isi</a>
+{% if pengguna %}
+<header class="kepala">
+  <div class="kepala__dalam">
+    <a class="merek" href="/beranda" aria-label="Zakat Insight, ke beranda">Zakat Insight</a>
+    <span class="kepala__lembaga">{{ pengguna.nama_lembaga or "Semua lembaga (super admin)" }}</span>
+    <nav class="nav" aria-label="Navigasi utama">
+      <a href="/beranda" {% if aktif == "beranda" %}aria-current="page"{% endif %}>Beranda</a>
+      {% if pengguna.tenant_id %}
+      <a href="/analisis" {% if aktif == "analisis" %}aria-current="page"{% endif %}>Analisis</a>
+      {% if pengguna.boleh("staf") %}<a href="/unggah" {% if aktif == "unggah" %}aria-current="page"{% endif %}>Unggah</a>{% endif %}
+      {% endif %}
+      <a href="/segera-hadir" {% if aktif == "segera" %}aria-current="page"{% endif %}>Segera hadir</a>
+    </nav>
+    <div class="akun">
+      <span class="akun__nama">{{ pengguna.nama }}<span class="akun__peran">{{ pengguna.nama_peran }}</span></span>
+      <form method="post" action="/keluar">
+        <input type="hidden" name="csrf" value="{{ pengguna.csrf }}">
+        <button class="tombol tombol--tipis" type="submit">Keluar</button>
+      </form>
+    </div>
+  </div>
+</header>
+{% endif %}
+<main id="isi" class="{% block kelas_main %}halaman{% endblock %}" tabindex="-1">
+{% block isi %}{% endblock %}
+</main>
+{% if pengguna %}
+<nav class="bilah-bawah" aria-label="Navigasi utama (ponsel)">
+  <a href="/beranda" {% if aktif == "beranda" %}aria-current="page"{% endif %}>Beranda</a>
+  {% if pengguna.tenant_id %}
+  <a href="/analisis" {% if aktif == "analisis" %}aria-current="page"{% endif %}>Analisis</a>
+  {% if pengguna.boleh("staf") %}<a href="/unggah" {% if aktif == "unggah" %}aria-current="page"{% endif %}>Unggah</a>{% endif %}
+  {% endif %}
+  <details class="lainnya">
+    <summary {% if aktif == "segera" %}aria-current="page"{% endif %}>Lainnya</summary>
+    <div class="lainnya__lembar">
+      <p class="lainnya__siapa">{{ pengguna.nama }}<br><span>{{ pengguna.nama_peran }}, {{ pengguna.nama_lembaga or "super admin" }}</span></p>
+      <a href="/segera-hadir">Segera hadir</a>
+      <form method="post" action="/keluar">
+        <input type="hidden" name="csrf" value="{{ pengguna.csrf }}">
+        <button class="tombol tombol--garis" type="submit">Keluar</button>
+      </form>
+    </div>
+  </details>
+</nav>
+{% endif %}
+{% block skrip %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,13 @@
+{% extends "dasar.html" %}
+{% block judul %}Segera hadir | Zakat Insight{% endblock %}
+{% block isi %}
+<section class="lembar lembar--sempit">
+  <h1>Segera hadir di versi web</h1>
+  <p class="pengantar">Halaman berikut belum dibuat ulang. Sampai siap, semuanya tetap tersedia di aplikasi lama dengan akun yang sama.</p>
+  <ul class="daftar-segera">
+    {% for nama, ket in daftar %}
+    <li><strong>{{ nama }}</strong><span>{{ ket }}</span></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endblock %}

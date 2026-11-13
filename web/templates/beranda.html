@@ -1,0 +1,78 @@
+{% extends "dasar.html" %}
+{% block judul %}Beranda | Zakat Insight{% endblock %}
+{% block isi %}
+<div class="beranda">
+  <section class="beranda__utama">
+    <h1 class="judul-lembaga">{{ pengguna.nama_lembaga or "Super admin" }}</h1>
+    {% if pengguna.tenant_id %}
+    <p class="neraca">
+      <span><strong>{{ jumlah_berkas | bilangan }}</strong> dari {{ stats.max_uploads | bilangan }} berkas</span>
+      <span><strong>{{ stats.storage_mb | desimal }}</strong> dari {{ stats.max_storage_mb | bilangan }} MB terpakai</span>
+      <span>Paket <strong>{{ (stats.paket or "basic") | capitalize }}</strong></span>
+    </p>
+
+    <h2 class="subjudul">Berkas transaksi</h2>
+    {% if berkas %}
+    <ul class="kuitansi-daftar">
+      {% for b in berkas %}
+      <li class="kuitansi">
+        <a class="kuitansi__tautan" href="/analisis/{{ b.id }}">
+          <span class="kuitansi__nama">{{ b.nama_file_asli }}</span>
+          <span class="kuitansi__periode">
+            {% if b.periode_mulai %}{{ b.periode_mulai | bulan_tahun }} sampai {{ b.periode_selesai | bulan_tahun }}{% else %}Periode belum terbaca{% endif %}
+          </span>
+          <span class="kuitansi__rinci">
+            {{ (b.jumlah_baris_penghimpunan or 0) | bilangan }} baris penghimpunan, diunggah {{ b.created_at | tanggal }}
+          </span>
+          <span class="kuitansi__aksi">Buka analisis</span>
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+    {% if jumlah_berkas > berkas|length %}<p class="catatan">Menampilkan {{ berkas|length }} berkas terbaru dari {{ jumlah_berkas }}. Semua berkas bisa dipilih di layar analisis.</p>{% endif %}
+    {% else %}
+    <div class="kosong">
+      <p><strong>Belum ada berkas transaksi.</strong></p>
+      {% if boleh_unggah %}
+      <p>Unggah rekap penghimpunan dalam Excel atau CSV, atau muat data contoh untuk mencoba layar analisis lebih dulu.</p>
+      {% else %}
+      <p>Peran Anda pembaca, jadi tidak bisa mengunggah. Minta staf atau admin lembaga mengunggah rekap penghimpunan; berkasnya akan muncul di sini.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if boleh_unggah %}
+    <div class="aksi">
+      <a class="tombol" href="/unggah">Unggah berkas</a>
+      <form method="post" action="/unggah/contoh">
+        <input type="hidden" name="csrf" value="{{ pengguna.csrf }}">
+        <button class="tombol tombol--garis" type="submit">Muat data contoh</button>
+      </form>
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="kosong">
+      <p><strong>Akun super admin tidak terikat ke satu lembaga.</strong></p>
+      <p>Pengelolaan lembaga belum tersedia di versi web. Gunakan aplikasi lama untuk melihat dan mengelola lembaga.</p>
+    </div>
+    {% endif %}
+  </section>
+
+  <aside class="beranda__ramadan" aria-label="Ramadan berikutnya">
+    {% if ramadan %}
+    {% if ramadan.sedang %}
+    <p class="hitung"><span class="hitung__angka">Ramadan</span> sedang berjalan</p>
+    <p class="hitung__ket">{{ ramadan.tahun_h }} H, perkiraan sampai {{ ramadan.syawal | tanggal }}.</p>
+    {% else %}
+    <p class="hitung"><span class="hitung__angka">{{ ramadan.hari_lagi | bilangan }}</span> hari lagi</p>
+    <p class="hitung__ket">menuju Ramadan {{ ramadan.tahun_h }} H (perkiraan {{ ramadan.mulai | tanggal }}). Bandingkan dengan pita Ramadan pada grafik tren di layar analisis untuk melihat seberapa besar lonjakan tahun-tahun sebelumnya.</p>
+    {% endif %}
+    <ol class="pita pita--kecil" aria-label="Dua belas bulan ke depan">
+      {% for b in pita %}
+      <li class="{% if b.ramadan %}pita__ramadan{% endif %}"><span class="pita__bulan">{{ b.label }}</span>{% if b.ramadan %}<span class="sr">, ada hari Ramadan</span>{% endif %}</li>
+      {% endfor %}
+    </ol>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}

@@ -544,6 +544,11 @@ pip install -r requirements.txt -c constraints.txt
 uvicorn web.main:app --reload --port 8000
 ```
 
-Tahap ini hanya: masuk, beranda, analisis satu berkas, unggah sederhana / data contoh. Halaman
-lain terdaftar di `/segera-hadir`. Rencana desain: `docs/RENCANA_DESAIN_WEB.md`. Saat mulai,
+Tersedia: masuk, pendaftaran lembaga (`/daftar`) dengan verifikasi email, beranda, analisis satu
+berkas (dengan filter tahun), unggah sederhana / data contoh. Halaman lain terdaftar di `/segera-hadir`.
+
+Verifikasi email saat pengembangan (`EMAIL_ENABLED=false`, bukan production): isi email, termasuk
+tautan verifikasi, dicetak di konsol server oleh `src/services/email_service.py`, sama seperti
+aplikasi Streamlit. Tautan dibuat dari `APP_BASE_URL`; set `APP_BASE_URL=http://localhost:8000` agar
+tautannya membuka aplikasi web (`/?page=verify_email&token=...` diproses langsung oleh web). Rencana desain: `docs/RENCANA_DESAIN_WEB.md`. Saat mulai,
 aplikasi web menjalankan migrasi yang sama dengan `init_db()` (termasuk `0005`, tabel sesi web).

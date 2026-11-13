@@ -1,0 +1,25 @@
+{% extends "dasar.html" %}
+{% block judul %}Verifikasi email | Zakat Insight{% endblock %}
+{% block kelas_body %}latar-masuk{% endblock %}
+{% block kelas_main %}masuk{% endblock %}
+{% block isi %}
+<section class="masuk__form" aria-labelledby="judul-verif">
+  <p class="merek merek--besar">Zakat Insight</p>
+  {% if berhasil %}
+  <h1 id="judul-verif">Email terverifikasi</h1>
+  <p class="pengantar-form">Akun Anda sudah aktif. Masuk dengan email dan kata sandi yang Anda buat saat mendaftar.</p>
+  <p><a class="tombol" href="/masuk">Masuk</a></p>
+  {% else %}
+  <h1 id="judul-verif">Tautan tidak berlaku</h1>
+  <div class="pesan pesan--galat" role="alert">
+    <p><strong>{% if ada_token %}Tautan verifikasi ini sudah dipakai, sudah kedaluwarsa, atau tidak lengkap.{% else %}Tautan verifikasi tidak lengkap.{% endif %}</strong></p>
+    <p>Bila akun Anda sudah aktif, langsung saja masuk. Bila belum, minta tautan baru; tautan berlaku 24 jam dan hanya bisa dipakai sekali.</p>
+  </div>
+  <div class="aksi">
+    <a class="tombol" href="/daftar/cek-email">Minta tautan baru</a>
+    <a class="tombol tombol--garis" href="/masuk">Masuk</a>
+  </div>
+  {% endif %}
+</section>
+{% include "_kalender.html" %}
+{% endblock %}

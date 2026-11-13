@@ -192,3 +192,22 @@ oleh `prefers-reduced-motion`. Tidak ada animasi masuk.
 10. **Di ponsel, label "Ramadan 1445 H" terpotong dan label bulan saling tindih.** Pada lebar grafik
     di bawah 520 px label pita disingkat "R" (dijelaskan di catatan pinggir) dan label bulan dijarangkan.
 11. **Nama berkas di pemilih terpotong** oleh tanggal panjang. Tanggal di opsi kini singkat ("13 Nov 2026").
+
+## Tahap 2: pendaftaran, filter tahun, keandalan proyeksi
+
+- **Pendaftaran, cek email, verifikasi** memakai bahasa visual layar masuk: form di kiri, panel Stempel
+  dengan hitung mundur Ramadan di kanan (satu include `_kalender.html`). Aturan kata sandi tampil di
+  bawah label sebelum diisi; galat ditulis per kolom dengan cara memperbaikinya, kolom bergaris Segel
+  dan `aria-invalid`/`aria-describedby`.
+- **Filter tahun** jadi pemilih keempat. Di ponsel keempat filter tersusun 2x2 agar angka terkumpul
+  tetap di layar pertama.
+- **Proyeksi tidak andal** tidak lagi diberi kalimat serif "Sekitar Rp ...". Judulnya mengatakan data
+  belum cukup stabil; peringatan mesin menjadi blok utama bergaris Kunyit; angka mesin tampil abu-abu
+  dengan label "Kasar"; grafik diredupkan. Proyeksi andal tetap seperti sebelumnya.
+- **Grafik proyeksi**: konteks riwayat 12 bulan (bukan 24); skala sumbu-y mengikuti proyeksi, selang
+  atas, dan kuartil atas riwayat (x1,35). Bulan riwayat yang melampaui skala tidak dibuang: garisnya
+  keluar dari tepi atas dan nilainya ditulis (&#9650; Rp ...) di tepi itu.
+- **Layar masuk**: judul memakai `text-wrap: balance` dan lebar 22ch (tidak ada kata menggantung);
+  tautan di bawah tombol dipisah garis dan jarak 1,75rem.
+- **Beranda**: berkas menjadi baris kuitansi selebar kolom dengan tombol "Buka analisis" di kanan;
+  isi beranda dibatasi 68rem dan dipusatkan. Tidak ada isian tambahan.

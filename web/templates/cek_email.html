@@ -1,0 +1,29 @@
+{% extends "dasar.html" %}
+{% block judul %}Cek email Anda | Zakat Insight{% endblock %}
+{% block kelas_body %}latar-masuk{% endblock %}
+{% block kelas_main %}masuk{% endblock %}
+{% block isi %}
+<section class="masuk__form" aria-labelledby="judul-cek">
+  <p class="merek merek--besar">Zakat Insight</p>
+  <h1 id="judul-cek">Cek email Anda</h1>
+  <p class="pengantar-form">Bila pendaftaran baru saja Anda kirim, kami mengirim email ke alamat yang Anda isi. Buka tautan di dalamnya
+    untuk mengaktifkan akun; setelah itu Anda bisa masuk. Tautan berlaku 24 jam.</p>
+  <p>Email tidak masuk dalam 10 menit? Periksa folder spam atau promosi, lalu minta tautan baru di bawah.</p>
+  {% if mode_simulasi %}
+  <div class="pesan" role="note"><p><strong>Mode pengembangan:</strong> pengiriman email dimatikan (EMAIL_ENABLED=false). Isi email,
+    termasuk tautan verifikasi, dicetak di konsol server. Di production pesan ini tidak tampil.</p></div>
+  {% endif %}
+  {% if pesan_kirim_ulang %}<p class="pesan pesan--info" role="status">{{ pesan_kirim_ulang }}</p>{% endif %}
+  {% if galat_kirim_ulang %}<div class="pesan pesan--galat" role="alert"><p><strong>{{ galat_kirim_ulang }}</strong></p></div>{% endif %}
+  <form method="post" action="/verifikasi/kirim-ulang" class="form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label for="email">Email yang dipakai saat mendaftar</label>
+    <input id="email" name="email" type="email" autocomplete="email" inputmode="email" required>
+    <button class="tombol tombol--garis tombol--penuh" type="submit">Kirim ulang tautan verifikasi</button>
+  </form>
+  <div class="masuk__lain">
+    <p>Sudah memverifikasi? <a href="/masuk">Masuk</a></p>
+  </div>
+</section>
+{% include "_kalender.html" %}
+{% endblock %}

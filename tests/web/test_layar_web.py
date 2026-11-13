@@ -50,7 +50,7 @@ def test_analisis_menjawab_empat_pertanyaan(klien, web_db, lembaga_a):
     # peringatan keandalan proyeksi dari mesin peramalan tampil apa adanya, tidak tersembunyi di <details>
     _, meta = forecast_donations(get_trend_analysis(hasil["df_himpun"])["monthly"], 12)
     if meta.get("peringatan_keandalan"):
-        bagian = r.text.split("Seberapa bisa dipegang", 1)[1].split("<details", 1)[0]
+        bagian = r.text.split('class="keandalan-utama"', 1)[1].split("</div>", 1)[0]
         assert meta["peringatan_keandalan"] in bagian
     assert len(re.findall(r"data-figur='", r.text)) == 2
 

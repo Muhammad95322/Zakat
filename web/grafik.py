@@ -131,8 +131,13 @@ def figur_tren(monthly: pd.DataFrame) -> Optional[Dict]:
 
 
 def figur_proyeksi(monthly: pd.DataFrame, forecast_df: pd.DataFrame, meta: Dict,
-                   bulan_konteks: int = 24) -> Optional[Dict]:
-    """Grafik proyeksi (chart_forecasting) dengan 24 bulan data terakhir sebagai konteks."""
+                   bulan_konteks: int = 12) -> Optional[Dict]:
+    """Grafik proyeksi (chart_forecasting) dengan 12 bulan data terakhir sebagai konteks.
+
+    Skala sumbu-y mengikuti area proyeksi (proyeksi, selang, dan sebagian besar riwayat), bukan puncak
+    Ramadan, agar garis proyeksi dan selangnya terbaca. Titik riwayat yang melampaui batas atas TIDAK
+    dihapus: garisnya keluar dari tepi atas dan nilainya ditulis sebagai anotasi di tepi itu.
+    """
     if forecast_df is None or forecast_df.empty:
         return None
     konteks = monthly.tail(bulan_konteks) if monthly is not None else pd.DataFrame()
@@ -141,10 +146,19 @@ def figur_proyeksi(monthly: pd.DataFrame, forecast_df: pd.DataFrame, meta: Dict,
     bawah = dict(zip(forecast_df["periode"].astype(str), forecast_df["batas_bawah"]))
     atas = dict(zip(forecast_df["periode"].astype(str), forecast_df["batas_atas"]))
     maks = 0.0
+    for kol in ("proyeksi", "batas_atas", "proyeksi_tanpa_koreksi"):
+        if kol in forecast_df:
+            maks = max([maks] + [float(v) for v in forecast_df[kol] if not pd.isna(v)])
+    riwayat = [float(v) for v in konteks["total_dana"]] if not konteks.empty else []
+    if riwayat:
+        maks = max(maks, float(pd.Series(riwayat).quantile(0.75)))
+    batas_y = maks * 1.35 if maks > 0 else 1.0
+    if riwayat and max(riwayat) <= batas_y * 1.15:
+        batas_y = max(batas_y, max(riwayat) * 1.05)  # tidak perlu memotong bila selisihnya kecil
+    terpotong = []
     for jejak in fig.data:
         x_asli = [str(v) for v in jejak.x]
         y = list(jejak.y)
-        maks = max([maks] + [float(v) for v in y if v is not None and not pd.isna(v)])
         nama = NAMA_JEJAK.get(jejak.name, jejak.name)
         jejak.update(x=_tengah_bulan(x_asli), name=nama)
         if jejak.hoverinfo == "skip" or (jejak.fill == "tonexty"):
@@ -154,6 +168,7 @@ def figur_proyeksi(monthly: pd.DataFrame, forecast_df: pd.DataFrame, meta: Dict,
             jejak.update(line={"color": STEMPEL, "width": 2}, marker={"size": 4, "color": STEMPEL},
                          mode="lines+markers")
             teks = [f"<b>{bulan_tahun(p)}</b><br>Terkumpul {rupiah_singkat(v)}" for p, v in zip(x_asli, y)]
+            terpotong = [(p, v) for p, v in zip(x_asli, y) if v is not None and float(v) > batas_y]
         elif nama.startswith("Proyeksi sebelum"):
             jejak.update(line={"color": ABU, "width": 1, "dash": "dot"})
             teks = [f"<b>{bulan_tahun(p)}</b><br>Sebelum koreksi bias {rupiah_singkat(v)}" for p, v in zip(x_asli, y)]
@@ -170,8 +185,15 @@ def figur_proyeksi(monthly: pd.DataFrame, forecast_df: pd.DataFrame, meta: Dict,
     semua = ([str(v) for v in konteks["periode_str"]] if not konteks.empty else []) + \
         [str(v) for v in forecast_df["periode"]]
     awal, akhir = min(semua), max(semua)
-    fig.update_layout(xaxis=sumbu_bulan(awal, akhir), yaxis=sumbu_rupiah(maks), shapes=pita_ramadan(awal, akhir),
-                      showlegend=True)
+    sumbu_y = sumbu_rupiah(batas_y)
+    atas_y = sumbu_y["range"][1]
+    anotasi = [{"x": f"{p[:7]}-15", "y": atas_y, "xref": "x", "yref": "y", "yanchor": "bottom",
+                "text": f"&#9650; {rupiah_singkat(v)}", "showarrow": False,
+                "font": {"size": 11, "color": STEMPEL, "family": HURUF},
+                "hovertext": f"{bulan_tahun(p)}: terkumpul {rupiah_singkat(v)} (di atas skala grafik)"}
+               for p, v in terpotong]
+    fig.update_layout(xaxis=sumbu_bulan(awal, akhir), yaxis=sumbu_y, shapes=pita_ramadan(awal, akhir),
+                      annotations=anotasi, showlegend=True, meta={"terpotong": len(terpotong)})
     return json.loads(fig.to_json())
 
 

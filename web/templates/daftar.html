@@ -1,0 +1,54 @@
+{% extends "dasar.html" %}
+{% block judul %}Daftar | Zakat Insight{% endblock %}
+{% block kelas_body %}latar-masuk{% endblock %}
+{% block kelas_main %}masuk{% endblock %}
+{% macro galat_kolom(nama) %}{% if galat[nama] %}<p class="galat-kolom" id="galat-{{ nama }}">{{ galat[nama] }}</p>{% endif %}{% endmacro %}
+{% macro terangkan(nama, bantu=None) %}{% if galat[nama] %}aria-invalid="true" aria-describedby="galat-{{ nama }}{% if bantu %} {{ bantu }}{% endif %}"{% elif bantu %}aria-describedby="{{ bantu }}"{% endif %}{% endmacro %}
+{% block isi %}
+<section class="masuk__form" aria-labelledby="judul-daftar">
+  <p class="merek merek--besar">Zakat Insight</p>
+  <h1 id="judul-daftar">Daftarkan lembaga Anda</h1>
+  <p class="pengantar-form">Anda akan menjadi admin lembaga ini dan bisa mengundang staf setelahnya.</p>
+
+  {% if galat %}
+  <div class="pesan pesan--galat" role="alert"><p><strong>Ada {{ galat|length }} isian yang perlu diperbaiki.</strong> Lihat keterangan merah di bawah kolomnya.</p></div>
+  {% elif galat_umum %}
+  <div class="pesan pesan--galat" role="alert"><p><strong>{{ galat_umum }}</strong></p></div>
+  {% endif %}
+
+  <form method="post" action="/daftar" class="form" novalidate>
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+
+    <label for="nama_lembaga">Nama lembaga</label>
+    <p class="bantu" id="bantu-lembaga">Nama ini tampil di seluruh aplikasi dan di laporan yang Anda unduh. Paling panjang {{ maks_lembaga }} karakter.</p>
+    <input id="nama_lembaga" name="nama_lembaga" type="text" autocomplete="organization" required maxlength="{{ maks_lembaga + 20 }}"
+           value="{{ nilai.nama_lembaga or '' }}" {{ terangkan("nama_lembaga", "bantu-lembaga") }} {% if not galat %}autofocus{% elif galat.nama_lembaga %}autofocus{% endif %}>
+    {{ galat_kolom("nama_lembaga") }}
+
+    <label for="nama">Nama lengkap Anda</label>
+    <input id="nama" name="nama" type="text" autocomplete="name" required maxlength="220"
+           value="{{ nilai.nama or '' }}" {{ terangkan("nama") }} {% if galat and not galat.nama_lembaga and galat.nama %}autofocus{% endif %}>
+    {{ galat_kolom("nama") }}
+
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" autocomplete="email" inputmode="email" required maxlength="220"
+           value="{{ nilai.email or '' }}" {{ terangkan("email") }}>
+    {{ galat_kolom("email") }}
+
+    <label for="sandi">Kata sandi</label>
+    <p class="bantu" id="bantu-sandi">{{ aturan_sandi }}</p>
+    <input id="sandi" name="sandi" type="password" autocomplete="new-password" required {{ terangkan("sandi", "bantu-sandi") }}>
+    {{ galat_kolom("sandi") }}
+
+    <label for="ulangi">Ulangi kata sandi</label>
+    <input id="ulangi" name="ulangi" type="password" autocomplete="new-password" required {{ terangkan("ulangi") }}>
+    {{ galat_kolom("ulangi") }}
+
+    <button class="tombol tombol--penuh" type="submit">Daftarkan lembaga</button>
+  </form>
+  <div class="masuk__lain">
+    <p>Sudah punya akun? <a href="/masuk">Masuk</a></p>
+  </div>
+</section>
+{% include "_kalender.html" %}
+{% endblock %}

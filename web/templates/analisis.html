@@ -18,7 +18,7 @@
       <div class="saring">
         <label for="f-{{ f.param }}">{{ f.judul }}</label>
         <select id="f-{{ f.param }}" name="{{ f.param }}" {% if not f.pilihan %}disabled{% endif %}>
-          <option value="">Semua</option>
+          <option value="">{{ f.semua or "Semua" }}</option>
           {% for p in f.pilihan %}<option value="{{ p }}" {% if p == f.nilai %}selected{% endif %}>{{ p }}</option>{% endfor %}
         </select>
       </div>
@@ -31,6 +31,9 @@
     {% endif %}
   </div>
 
+  {% if hasil and hasil.pesan_filter %}
+  <div class="pesan" role="status">{% for m in hasil.pesan_filter %}<p>{{ m }}</p>{% endfor %}</div>
+  {% endif %}
   {% if galat %}
   <section class="lembar kosong kosong--galat" role="alert">
     <h1>{{ upload.nama_file_asli }}</h1>
@@ -56,10 +59,10 @@
         {% if p %}
         <p class="perubahan perubahan--{{ p.arah }}">
           {% if p.arah == "naik" %}<span aria-hidden="true">&#9650;</span>{% elif p.arah == "turun" %}<span aria-hidden="true">&#9660;</span>{% endif %}
-          {{ p.n_bulan }} bulan terakhir ({{ p.awal }} sampai {{ p.akhir }}) terkumpul {{ p.sekarang | rupiah_singkat }},
-          {% if p.arah == "baru" %}sedangkan {{ p.n_bulan }} bulan sebelumnya belum ada transaksi.
-          {% elif p.arah == "tetap" %}hampir sama dengan {{ p.n_bulan }} bulan sebelumnya ({{ p.sebelumnya | rupiah_singkat }}).
-          {% else %}<strong>{{ p.arah }} {{ p.persen | persen }}</strong> dari {{ p.n_bulan }} bulan sebelumnya ({{ p.sebelumnya | rupiah_singkat }}).{% endif %}
+          {% if p.arah == "tanpa" %}{{ p.label_kini }} terkumpul {{ p.sekarang | rupiah_singkat }}. {{ p.catatan }}
+          {% elif p.arah == "baru" %}{{ p.label_kini }} terkumpul {{ p.sekarang | rupiah_singkat }}, sedangkan {{ p.label_lalu }} belum ada transaksi.
+          {% elif p.arah == "tetap" %}{{ p.label_kini }} terkumpul {{ p.sekarang | rupiah_singkat }}, hampir sama dengan {{ p.label_lalu }} ({{ p.sebelumnya | rupiah_singkat }}).
+          {% else %}{{ p.label_kini }} terkumpul {{ p.sekarang | rupiah_singkat }}, <strong>{{ p.arah }} {{ p.persen | persen }}</strong> dari {{ p.label_lalu }} ({{ p.sebelumnya | rupiah_singkat }}).{% endif %}
         </p>
         {% endif %}
         <dl class="neraca">
@@ -131,24 +134,37 @@
       </div>
     </section>
 
-    <section class="bagian" aria-labelledby="judul-proyeksi">
+    <section class="bagian bagian--proyeksi {% if hasil.proyeksi.ada and not hasil.proyeksi.andal %}bagian--tak-andal{% endif %}" aria-labelledby="judul-proyeksi">
       {% set pr = hasil.proyeksi %}
       <div class="bagian__isi">
         <h2 id="judul-proyeksi">Perkiraan 12 bulan ke depan</h2>
-        {% if pr.ada %}
+        {% if pr.seluruh_riwayat %}<p class="catatan catatan--tahun">Proyeksi memakai seluruh riwayat, bukan hanya tahun yang dipilih.</p>{% endif %}
+        {% if pr.ada and pr.andal %}
         <p class="proyeksi-ringkas">Sekitar <strong>{{ pr.total | rupiah_singkat }}</strong> untuk {{ pr.rentang }}, bila pola sejauh ini berlanjut.</p>
-        <div class="grafik" data-figur='{{ hasil.figur_proyeksi | tojson }}' role="img"
-             aria-label="Grafik proyeksi penghimpunan {{ pr.rentang }} dengan metode {{ pr.metode }}"></div>
+        {% elif pr.ada %}
+        <p class="proyeksi-ringkas proyeksi-ringkas--tak-andal">Data belum cukup stabil untuk perkiraan yang bisa dipegang.</p>
+        <div class="keandalan-utama" role="note">
+          {% for w in pr.peringatan %}<p>{{ w }}</p>{% else %}<p>Galat uji mundur di atas batas keandalan.</p>{% endfor %}
+        </div>
+        <p class="angka-kasar"><span class="label-kasar">Kasar</span> Hitungan mesin: sekitar {{ pr.total | rupiah_singkat }} untuk {{ pr.rentang }}. Jangan dipakai sebagai target atau anggaran.</p>
+        {% endif %}
+        {% if pr.ada %}
+        <div class="grafik {% if not pr.andal %}grafik--redup{% endif %}" data-figur='{{ hasil.figur_proyeksi | tojson }}' role="img"
+             aria-label="Grafik proyeksi penghimpunan {{ pr.rentang }} dengan metode {{ pr.metode }}{% if not pr.andal %}, tidak andal{% endif %}"></div>
+        {% if (hasil.figur_proyeksi.layout.meta or {}).terpotong %}
+        <p class="catatan">Skala grafik mengikuti area proyeksi. Bulan riwayat yang lebih tinggi dari skala ditandai &#9650; beserta nilainya di tepi atas.</p>
+        {% endif %}
         {% else %}
         <p class="kosong">Proyeksi belum bisa dibuat: {{ pr.warning or "data bulanan terlalu sedikit" }}</p>
         {% endif %}
       </div>
-      <aside class="bagian__catatan catatan-pinggir catatan-pinggir--keandalan" aria-label="Keandalan proyeksi">
+      <aside class="bagian__catatan catatan-pinggir{% if pr.andal %} catatan-pinggir--keandalan{% endif %}" aria-label="Keandalan proyeksi">
         <h2>Seberapa bisa dipegang</h2>
-        {% if pr.peringatan %}
-        {% for w in pr.peringatan %}<p class="peringatan">{{ w }}</p>{% endfor %}
+        {% if pr.ada and pr.andal %}
+        {% for w in pr.peringatan %}<p class="peringatan">{{ w }}</p>{% else %}
+        <p>Uji mundur tidak menemukan masalah keandalan besar. Tetap perlakukan angka ini sebagai perkiraan, bukan target.</p>{% endfor %}
         {% elif pr.ada %}
-        <p>Uji mundur tidak menemukan masalah keandalan besar. Tetap perlakukan angka ini sebagai perkiraan, bukan target.</p>
+        <p>Peringatannya tertulis di bagian utama blok proyeksi. Proyeksi akan lebih bisa dipegang bila riwayat bulanan lebih panjang dan pola musimannya lebih teratur.</p>
         {% endif %}
         {% if pr.ada %}
         <p>Metode: {{ pr.metode }}. Rata-rata meleset pada uji mundur: {{ pr.mape_teks }}.</p>

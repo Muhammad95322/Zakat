@@ -1,2 +1,2 @@
-# Lazismu Insight - src package
+# Zakat Insight - src package
 

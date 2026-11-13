@@ -1,0 +1,20 @@
+<aside class="masuk__kalender" aria-label="Ramadan berikutnya">
+  {% if ramadan %}
+  {% if ramadan.sedang %}
+  <p class="hitung"><span class="hitung__angka">Ramadan</span> sedang berjalan</p>
+  <p class="hitung__ket">{{ ramadan.tahun_h }} H, perkiraan sampai {{ ramadan.syawal | tanggal }}. Puncak zakat fitrah biasanya di sepuluh hari terakhir.</p>
+  {% else %}
+  <p class="hitung"><span class="hitung__angka">{{ ramadan.hari_lagi | bilangan }}</span> hari lagi</p>
+  <p class="hitung__ket">menuju Ramadan {{ ramadan.tahun_h }} H, perkiraan mulai {{ ramadan.mulai | tanggal }}. Lonjakan penghimpunan biasanya mulai terasa dua pekan sebelumnya.</p>
+  {% endif %}
+  <ol class="pita" aria-label="Dua belas bulan ke depan">
+    {% for b in pita %}
+    <li class="{% if b.ramadan %}pita__ramadan{% endif %}">
+      <span class="pita__bulan">{{ b.label }}</span>{% if b.awal_tahun %}<span class="pita__tahun">{{ b.tahun }}</span>{% endif %}
+      {% if b.ramadan %}<span class="sr">, ada hari Ramadan</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  <p class="hitung__sumber">Tanggal Ramadan adalah perkiraan hisab dan bisa bergeser satu sampai dua hari dari penetapan resmi.</p>
+  {% endif %}
+</aside>

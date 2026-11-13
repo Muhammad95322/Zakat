@@ -27,12 +27,14 @@ from src.database import SessionLocal
 from src.middleware.rate_limiter import RateLimiter
 from src.services import batas_laju
 from src.services.audit_service import catat_log
+from src.services.auth_service import kirim_ulang_verifikasi, register_tenant, verifikasi_email
 from src.services.auth_service import login as layanan_login
 from src.services.pemetaan_service import daftar_pemetaan
 from src.services.tenant_service import get_tenant_stats
 from src.services.upload_service import baca_berkas_unggahan, get_upload, get_uploads, simpan_upload
 from src.auth.jwt_handler import decode_token
 from web import analisis as mesin
+from web import daftar as formulir
 from web import keamanan
 from web.format import FILTER
 from web.grafik import pita_dua_belas_bulan, ramadan_berikutnya
@@ -178,8 +180,37 @@ def _layar_masuk(request: Request, galat: Optional[str] = None, email: str = "",
     return resp
 
 
+def _layar_anonim(request: Request, nama: str, konteks: dict, status: int = 200) -> HTMLResponse:
+    """Halaman tanpa sesi (daftar, cek email, verifikasi) dengan token CSRF double-submit seperti layar masuk."""
+    csrf = request.cookies.get(COOKIE_CSRF_MASUK)
+    if not csrf or len(csrf) > 128:
+        csrf = keamanan.token_baru()
+    hari_ini = date.today()
+    dasar = {"csrf": csrf, "ramadan": ramadan_berikutnya(hari_ini), "pita": pita_dua_belas_bulan(hari_ini),
+             "mode_simulasi": not settings.EMAIL_ENABLED and not settings.is_production}
+    dasar.update(konteks)
+    resp = tampil(request, nama, dasar, status=status)
+    _set_cookie(resp, COOKIE_CSRF_MASUK, csrf)
+    return resp
+
+
+def _verifikasi(request: Request, token: Optional[str], db: Session) -> HTMLResponse:
+    """Token dari tautan email. Hasil hanya berhasil/gagal; token tidak pernah ditulis ke halaman."""
+    berhasil = False
+    if token and len(token) <= 128:
+        berhasil = verifikasi_email(db, token)
+    return _layar_anonim(request, "verifikasi.html", {"berhasil": berhasil, "ada_token": bool(token)},
+                         status=200 if berhasil else 400)
+
+
 @app.get("/", include_in_schema=False)
-def akar(pengguna: Optional[Pengguna] = Depends(pengguna_opsional)):
+def akar(request: Request, page: Optional[str] = None, token: Optional[str] = None,
+         pengguna: Optional[Pengguna] = Depends(pengguna_opsional), db: Session = Depends(ambil_db)):
+    # Tautan email dibuat auth_service dalam format aplikasi lama (APP_BASE_URL/?page=verify_email&token=...).
+    # Bila aplikasi web yang dilayani di APP_BASE_URL, tautan itu diproses langsung di sini (tanpa redirect,
+    # supaya token tidak muncul lagi di header Location).
+    if page == "verify_email" and token:
+        return _verifikasi(request, token, db)
     return RedirectResponse("/beranda" if pengguna else "/masuk", status_code=303)
 
 
@@ -233,6 +264,89 @@ def kirim_masuk(request: Request, email: str = Form(""), sandi: str = Form(""), 
     return resp
 
 
+# ---------------------------------------------------------------------------
+# Pendaftaran lembaga & verifikasi email
+# ---------------------------------------------------------------------------
+# Per email, di memori (seperti batas login per email): 3 percobaan per jam. Batas per IP memakai
+# batas_laju "daftar" (BATAS_DAFTAR_IP, tahan restart) yang juga dipakai halaman Streamlit.
+BATAS_DAFTAR_EMAIL, JENDELA_DAFTAR_EMAIL = 3, 3600
+BATAS_VERIF_EMAIL, JENDELA_VERIF_EMAIL = 3, 3600
+
+
+@app.get("/daftar", response_class=HTMLResponse)
+def daftar(request: Request, pengguna: Optional[Pengguna] = Depends(pengguna_opsional)):
+    if pengguna:
+        return RedirectResponse("/beranda", status_code=303)
+    return _layar_anonim(request, "daftar.html", {"nilai": {}, "galat": {}, "aturan_sandi": formulir.ATURAN_SANDI,
+                                                  "maks_lembaga": formulir.MAKS_NAMA_LEMBAGA})
+
+
+@app.post("/daftar", response_class=HTMLResponse)
+def kirim_daftar(request: Request, nama_lembaga: str = Form(""), nama: str = Form(""), email: str = Form(""),
+                 sandi: str = Form(""), ulangi: str = Form(""), csrf: str = Form(""),
+                 db: Session = Depends(ambil_db)):
+    periksa_csrf(request, csrf, request.cookies.get(COOKIE_CSRF_MASUK))
+    nilai, galat = formulir.periksa(nama_lembaga[:400], nama[:400], email[:400], sandi[:400], ulangi[:400])
+    konteks = {"nilai": nilai, "galat": galat, "aturan_sandi": formulir.ATURAN_SANDI,
+               "maks_lembaga": formulir.MAKS_NAMA_LEMBAGA}
+    if galat:
+        return _layar_anonim(request, "daftar.html", konteks, status=400)
+    ip, ua = keamanan.ip_dan_ua(request)
+    boleh, tunggu = batas_laju.periksa_dan_catat(db, "daftar", ip, ua=ua)
+    if not boleh:
+        konteks["galat_umum"] = batas_laju.pesan_terlalu_sering(tunggu).replace("⚠️", "").strip()
+        return _layar_anonim(request, "daftar.html", konteks, status=429)
+    limiter, kunci = RateLimiter(), f"daftar:{nilai['email']}"
+    boleh_email, tunggu_email = limiter.check_rate_limit(kunci, BATAS_DAFTAR_EMAIL, JENDELA_DAFTAR_EMAIL)
+    if not boleh_email:
+        konteks["galat_umum"] = (f"Terlalu banyak percobaan pendaftaran dengan email ini. Coba lagi dalam "
+                                 f"{max(1, (tunggu_email + 59) // 60)} menit, atau periksa kotak masuk Anda.")
+        return _layar_anonim(request, "daftar.html", konteks, status=429)
+    limiter.record_failure(kunci)  # setiap percobaan dihitung, ada atau tidaknya akun
+    hasil = register_tenant(db, nama_lembaga=nilai["nama_lembaga"], nama_admin=nilai["nama"], email=nilai["email"],
+                            password=sandi, ip=ip, ua=ua)
+    if not hasil:
+        konteks["galat_umum"] = "Pendaftaran belum berhasil. Periksa kembali isian Anda, lalu kirim lagi."
+        return _layar_anonim(request, "daftar.html", konteks, status=400)
+    # Email baru dan email yang sudah terdaftar mendapat respons yang sama persis
+    return RedirectResponse("/daftar/cek-email", status_code=303)
+
+
+@app.get("/daftar/cek-email", response_class=HTMLResponse)
+def cek_email(request: Request):
+    return _layar_anonim(request, "cek_email.html", {"pesan_kirim_ulang": None})
+
+
+@app.post("/verifikasi/kirim-ulang", response_class=HTMLResponse)
+def kirim_ulang(request: Request, email: str = Form(""), csrf: str = Form(""), db: Session = Depends(ambil_db)):
+    periksa_csrf(request, csrf, request.cookies.get(COOKIE_CSRF_MASUK))
+    e = email.strip().lower()[:200]
+    if not e:
+        return _layar_anonim(request, "cek_email.html", {"galat_kirim_ulang": "Isi email yang Anda pakai saat mendaftar."},
+                             status=400)
+    ip, ua = keamanan.ip_dan_ua(request)
+    boleh, tunggu = batas_laju.periksa_dan_catat(db, "verifikasi", ip, ua=ua)
+    if not boleh:
+        return _layar_anonim(request, "cek_email.html", {
+            "galat_kirim_ulang": batas_laju.pesan_terlalu_sering(tunggu).replace("⚠️", "").strip()}, status=429)
+    limiter, kunci = RateLimiter(), f"verifikasi:{e}"
+    boleh_email, tunggu_email = limiter.check_rate_limit(kunci, BATAS_VERIF_EMAIL, JENDELA_VERIF_EMAIL)
+    if not boleh_email:
+        return _layar_anonim(request, "cek_email.html", {
+            "galat_kirim_ulang": f"Tautan untuk email ini sudah dikirim ulang beberapa kali. Coba lagi dalam "
+                                 f"{max(1, (tunggu_email + 59) // 60)} menit."}, status=429)
+    limiter.record_failure(kunci)
+    kirim_ulang_verifikasi(db, e, ip=ip, ua=ua)
+    return _layar_anonim(request, "cek_email.html", {
+        "pesan_kirim_ulang": "Jika email tersebut terdaftar dan belum terverifikasi, tautan baru sedang dikirim. "
+                             "Tautan lama tidak berlaku lagi. Periksa juga folder spam."})
+
+
+@app.get("/verifikasi", response_class=HTMLResponse)
+def verifikasi(request: Request, token: Optional[str] = None, db: Session = Depends(ambil_db)):
+    return _verifikasi(request, token, db)
+
+
 @app.post("/keluar")
 def keluar(request: Request, csrf: str = Form(""), pengguna: Pengguna = Depends(wajib_masuk),
            db: Session = Depends(ambil_db)):
@@ -280,7 +394,8 @@ def analisis_awal(request: Request, berkas: Optional[str] = None, pengguna: Peng
 
 @app.get("/analisis/{upload_id}", response_class=HTMLResponse)
 def analisis_berkas(request: Request, upload_id: str, wilayah: Optional[str] = None, dana: Optional[str] = None,
-                    kanal: Optional[str] = None, pengguna: Pengguna = Depends(wajib_lembaga),
+                    kanal: Optional[str] = None, tahun: Optional[str] = None,
+                    pengguna: Pengguna = Depends(wajib_lembaga),
                     db: Session = Depends(ambil_db)):
     # tenant_id SELALU dari sesi; berkas lembaga lain tidak cocok filter ini -> 404
     upload = get_upload(db, upload_id, pengguna.tenant_id)
@@ -304,7 +419,8 @@ def analisis_berkas(request: Request, upload_id: str, wilayah: Optional[str] = N
     except mesin.BerkasTidakBisaDianalisis as e:
         konteks["galat"] = f"Berkas ini tidak dapat dianalisis. {e}"
         return tampil(request, "analisis.html", konteks)
-    hasil = mesin.analisis(siap, {"wilayah": wilayah, "dana": dana, "kanal": kanal})
+    hasil = mesin.analisis(siap, {"wilayah": wilayah, "dana": dana, "kanal": kanal,
+                                         "tahun": (tahun or "")[:8]})
     konteks["hasil"] = hasil
     konteks["tautan_reset"] = f"/analisis/{upload.id}"
     konteks["query_aktif"] = urlencode({k: v for k, v in hasil.filter_aktif.items() if v})
@@ -368,7 +484,6 @@ SEGERA = [
     ("Jejak audit", "Siapa masuk, mengunggah, dan menghapus apa, kapan."),
     ("Paket dan kuota", "Batas berkas, penyimpanan, dan anggota per paket."),
     ("Profil dan kata sandi", "Ganti nama, ganti sandi, keluar dari semua perangkat."),
-    ("Daftar lembaga baru", "Pendaftaran lembaga dan verifikasi email."),
     ("Atur ulang kata sandi", "Tautan atur ulang lewat email."),
     ("Kelola lembaga (super admin)", "Daftar semua lembaga, ubah paket, nonaktifkan."),
     ("Pemetaan kolom", "Mencocokkan kolom berkas yang formatnya tidak dikenali otomatis."),

@@ -96,7 +96,7 @@ select:disabled { color: var(--abu); background-color: var(--kertas); }
 .kepala__dalam { max-width: 80rem; margin: 0 auto; padding: 0 var(--sela); display: flex; align-items: center; gap: 1.25rem; min-height: 3.75rem; }
 .merek { font-family: var(--serif); font-weight: 650; font-size: var(--t-21); color: var(--tinta); text-decoration: none; white-space: nowrap; }
 .merek:hover { color: var(--stempel); }
-.kepala__lembaga { color: var(--abu); padding-left: 1.25rem; border-left: 1px solid var(--garis); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kepala__lembaga { flex: 0 1 auto; max-width: 30rem; color: var(--abu); padding-left: 1.25rem; border-left: 1px solid var(--garis); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav { display: flex; gap: .25rem; margin-left: auto; }
 .nav a { padding: 1.1rem .7rem 1rem; color: var(--tinta); text-decoration: none; font-weight: 500; border-bottom: 3px solid transparent; }
 .nav a:hover { color: var(--stempel); }
@@ -122,7 +122,14 @@ select:disabled { color: var(--abu); background-color: var(--kertas); }
 .masuk { display: grid; grid-template-columns: minmax(20rem, 34rem) 1fr; min-height: 100vh; min-height: 100dvh; }
 .masuk__form { padding: clamp(1.5rem, 6vw, 5rem) clamp(1.25rem, 5vw, 4rem); align-self: center; width: 100%; max-width: 30rem; justify-self: center; }
 .merek--besar { font-size: var(--t-21); color: var(--stempel); margin-bottom: 2.5rem; }
-.masuk__form h1 { font-size: var(--t-28); }
+.masuk__form h1 { font-size: var(--t-28); text-wrap: balance; max-width: 22ch; }
+.pengantar-form { color: var(--abu); margin-top: -.1rem; }
+.masuk__lain { margin-top: 1.75rem; padding-top: 1.25rem; border-top: 1px solid var(--garis); }
+.masuk__lain p { margin-bottom: .55rem; }
+.masuk__lain .catatan { margin-top: .9rem; }
+.bantu { color: var(--abu); font-size: var(--t-13); margin: -.15rem 0 .35rem; }
+.galat-kolom { color: var(--segel); font-size: var(--t-13); font-weight: 600; margin: .3rem 0 0; }
+input[aria-invalid=true] { border-color: var(--segel); border-width: 2px; }
 .masuk__kalender { background: var(--stempel); color: var(--putih); padding: clamp(1.5rem, 6vw, 5rem); display: flex; flex-direction: column; justify-content: center; }
 .masuk__kalender :focus-visible { outline-color: var(--putih); }
 .hitung { font-family: var(--serif); font-size: var(--t-28); margin: 0; }
@@ -136,23 +143,26 @@ select:disabled { color: var(--abu); background-color: var(--kertas); }
 .pita li.pita__ramadan { border-top: 10px solid var(--kunyit-terang); margin-top: -7px; font-weight: 700; }
 
 /* ---------- Beranda ---------- */
-.beranda { display: grid; grid-template-columns: minmax(0, 1fr) 20rem; gap: clamp(1.5rem, 4vw, 3.5rem); align-items: start; }
+.beranda { display: grid; grid-template-columns: minmax(0, 1fr) 20rem; gap: clamp(1.5rem, 4vw, 3.5rem); align-items: start; max-width: 68rem; margin: 0 auto; }
 .judul-lembaga { font-size: clamp(1.75rem, 4vw, 2.5rem); margin-bottom: .4rem; }
 .neraca { display: flex; flex-wrap: wrap; gap: .4rem 1.75rem; color: var(--abu); margin: 0; }
 .neraca strong { color: var(--tinta); font-weight: 650; }
-.kuitansi-daftar { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: 1.25rem; }
+.kuitansi-daftar { list-style: none; padding: 0; margin: 0; display: grid; gap: 1rem; }
 .kuitansi {
   background: var(--putih); position: relative;
   -webkit-mask: radial-gradient(circle 6px at 50% 100%, transparent 97%, #000 100%) 0 0 / 16px 100% repeat-x;
           mask: radial-gradient(circle 6px at 50% 100%, transparent 97%, #000 100%) 0 0 / 16px 100% repeat-x;
 }
-.kuitansi__tautan { display: grid; gap: .2rem; padding: 1.1rem 1.25rem 1.6rem; color: var(--tinta); text-decoration: none; border-top: 3px solid var(--stempel); }
+.kuitansi__tautan { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "nama aksi" "periode aksi" "rinci rinci";
+  gap: .2rem 1.5rem; padding: 1.1rem 1.25rem 1.6rem; color: var(--tinta); text-decoration: none; border-left: 3px solid var(--stempel); }
+.kuitansi__nama { grid-area: nama; } .kuitansi__periode { grid-area: periode; } .kuitansi__rinci { grid-area: rinci; }
+.kuitansi__aksi { grid-area: aksi; align-self: center; }
 .kuitansi__tautan:hover .kuitansi__aksi { text-decoration: underline; }
 .kuitansi__tautan:focus-visible { outline-offset: -3px; }
 .kuitansi__nama { font-weight: 650; overflow-wrap: anywhere; }
 .kuitansi__periode { font-family: var(--serif); font-size: var(--t-17); }
 .kuitansi__rinci { color: var(--abu); font-size: var(--t-13); border-top: 1px dashed var(--garis); padding-top: .5rem; margin-top: .35rem; }
-.kuitansi__aksi { color: var(--stempel); font-weight: 600; font-size: var(--t-13); margin-top: .35rem; }
+.kuitansi__aksi { color: var(--stempel); font-weight: 600; font-size: var(--t-13); border: 1px solid var(--stempel); border-radius: 3px; padding: .45rem .8rem; white-space: nowrap; }
 .beranda__ramadan { border-left: 3px solid var(--kunyit); padding: .25rem 0 .25rem 1.25rem; }
 .beranda__ramadan .hitung { font-size: var(--t-21); }
 .beranda__ramadan .hitung__angka { font-size: 4rem; color: var(--kunyit-tua); }
@@ -174,7 +184,7 @@ select:disabled { color: var(--abu); background-color: var(--kertas); }
 .kendali__berkas { display: flex; flex-wrap: wrap; gap: 0 .5rem; align-items: end; min-width: min(100%, 20rem); flex: 1 1 18rem; }
 .kendali__berkas label { width: 100%; }
 .kendali__berkas select { flex: 1; font-weight: 600; }
-.kendali__saring { display: grid; grid-template-columns: repeat(3, minmax(9rem, 13rem)) auto; gap: 0 .75rem; align-items: end; }
+.kendali__saring { display: grid; grid-template-columns: repeat(4, minmax(8rem, 12rem)) auto; gap: 0 .75rem; align-items: end; }
 .saring--aksi { display: flex; gap: .75rem; align-items: center; min-height: 2.75rem; }
 body.memuat .lembar { opacity: .55; transition: opacity 120ms; }
 
@@ -208,6 +218,13 @@ dl.neraca dd { margin: 0; color: var(--tinta); font-weight: 650; font-size: var(
 .grafik { width: 100%; min-height: 280px; margin-top: .5rem; }
 .proyeksi-ringkas { font-family: var(--serif); font-size: var(--t-21); }
 .proyeksi-ringkas strong { color: var(--kunyit-tua); font-weight: 650; }
+.proyeksi-ringkas--tak-andal { color: var(--tinta); }
+.keandalan-utama { border-left: 4px solid var(--kunyit); background: rgba(179, 116, 0, .08); padding: .8rem 1rem; margin: .5rem 0 1rem; font-size: var(--t-15); max-width: 44rem; }
+.keandalan-utama p:last-child { margin-bottom: 0; }
+.angka-kasar { color: var(--abu); font-size: var(--t-15); }
+.label-kasar { display: inline-block; border: 1px solid var(--garis-isian); color: var(--abu); font-size: .75rem; font-weight: 650; padding: 0 .4rem; border-radius: 2px; margin-right: .35rem; }
+.grafik--redup { opacity: .6; }
+.catatan--tahun { color: var(--tinta); border-left: 3px solid var(--stempel); padding-left: .6rem; }
 
 .rincian-kisi { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1.5rem 2.5rem; margin-top: .75rem; }
 .rincian { width: 100%; border-collapse: collapse; font-size: var(--t-15); }
@@ -222,7 +239,7 @@ dl.neraca dd { margin: 0; color: var(--tinta); font-weight: 650; font-size: var(
 
 /* ---------- Layar sempit ---------- */
 @media (max-width: 1080px) {
-  .kendali__saring { grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
+  .kendali__saring { grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; }
   .saring--aksi { grid-column: 1 / -1; }
 }
 @media (max-width: 900px) {
@@ -239,10 +256,12 @@ dl.neraca dd { margin: 0; color: var(--tinta); font-weight: 650; font-size: var(
   .pita__tahun { display: none; }
 }
 @media (max-width: 720px) {
+  .kuitansi__tautan { grid-template-columns: minmax(0, 1fr); grid-template-areas: "nama" "periode" "rinci" "aksi"; }
+  .kuitansi__aksi { justify-self: start; margin-top: .5rem; }
   .nav, .akun { display: none; }
   .kepala__dalam { min-height: 3.25rem; gap: .75rem; }
   .merek { font-size: var(--t-17); }
-  .kepala__lembaga { padding-left: .75rem; font-size: var(--t-13); }
+  .kepala__lembaga { flex: 1 1 auto; max-width: none; padding-left: .75rem; font-size: var(--t-13); }
   body { padding-bottom: 4.5rem; }
   .halaman { padding: 1rem; }
   .bilah-bawah {
@@ -269,7 +288,7 @@ dl.neraca dd { margin: 0; color: var(--tinta); font-weight: 650; font-size: var(
   /* Tiga filter berjajar agar angka terkumpul tetap di layar pertama */
   .kendali { gap: 0; margin-bottom: .9rem; }
   .kendali__berkas label, .kendali__saring .saring label { margin: .5rem 0 .2rem; font-size: .75rem; }
-  .kendali__saring { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 .4rem; }
+  .kendali__saring { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 .5rem; }
   .kendali__saring select, .kendali__berkas select { font-size: 1rem; padding: .5rem 1.6rem .5rem .5rem; background-position: calc(100% - 12px) 55%, calc(100% - 7px) 55%; }
   .saring--aksi { min-height: 0; }
   .saring--aksi:empty { display: none; }

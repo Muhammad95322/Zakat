@@ -1,6 +1,7 @@
 """Halaman registrasi lembaga baru - Zakat Insight."""
 import re
 import streamlit as st
+from src.components.tema import kepala_publik
 
 
 def _validate_password(password: str) -> list[str]:
@@ -17,25 +18,13 @@ def _validate_password(password: str) -> list[str]:
 
 def show():
     st.set_page_config(
-        page_title="Daftar Lembaga - Zakat Insight", page_icon="🕌", layout="centered"
+        page_title="Daftar Lembaga - Zakat Insight", page_icon=":material/bar_chart_4_bars:", layout="centered"
     )
 
-    st.markdown("""
-    <style>
-    .stButton > button { border-radius: 8px; width: 100%; }
-    .reg-header { text-align: center; padding: 2rem 0 1rem; }
-    .req-list { background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px;
-                padding: 0.75rem 1rem; font-size: 0.85rem; color: #166534; }
-    </style>
-    """, unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown(
-            '<div class="reg-header"><h1>🕌 Zakat Insight</h1>'
-            "<h3>Daftar Lembaga Baru</h3></div>",
-            unsafe_allow_html=True,
-        )
+        kepala_publik('Daftarkan lembaga', 'Buat akun admin untuk lembaga Anda. Anggota tim bisa diundang setelah masuk.')
 
         with st.form("form_register"):
             nama_lembaga = st.text_input("Nama Lembaga *", placeholder="Yayasan Zakat Nusantara")
@@ -43,7 +32,7 @@ def show():
             email_admin = st.text_input("Email Administrator *", placeholder="admin@lembaga.id")
 
             st.markdown(
-                '<div class="req-list">🔒 Syarat kata sandi: minimal 8 karakter, '
+                '<div class="req-list">Syarat kata sandi: minimal 8 karakter, '
                 "1 huruf besar, 1 angka</div>",
                 unsafe_allow_html=True,
             )
@@ -106,12 +95,12 @@ def show():
                         )
                         if result:
                             # Pesan SAMA untuk email baru maupun yang sudah terdaftar (cegah enumerasi)
-                            st.success(f"✅ {PESAN_DAFTAR_TERKIRIM}")
+                            st.success(f"{PESAN_DAFTAR_TERKIRIM}")
                             if st.button("Kembali ke Login"):
                                 st.session_state["page"] = "login"
                                 st.rerun()
                         else:
-                            st.error("❌ Pendaftaran gagal: periksa kembali isian Anda (kata sandi minimal 8 "
+                            st.error("Pendaftaran gagal: periksa kembali isian Anda (kata sandi minimal 8 "
                                      "karakter, 1 huruf besar, 1 angka).")
                 except ImportError as e:
                     st.error(

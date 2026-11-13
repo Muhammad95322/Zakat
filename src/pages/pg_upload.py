@@ -8,6 +8,7 @@ import streamlit as st
 
 from src.auth.session import get_current_user, get_tenant_id, has_permission
 from src.components.kualitas import tampilkan_kualitas
+from src.components.tema import judul_bagian, judul_halaman, ukuran_mb
 from src.database import get_db
 from src.loader import DataFileError
 from src.pemetaan import BIDANG_WIZARD
@@ -34,11 +35,11 @@ def _simpan(isi: bytes, nama: str, tenant_id: str, user: dict, pemetaan=None, be
     try:
         hasil = siapkan_data(isi, nama, pemetaan=pemetaan, pemetaan_lembaga=lembaga, berkas=berkas)
     except DataFileError as e:
-        st.error(f"❌ {e}")
+        st.error(str(e))
         return
     except Exception:
         logger.exception("Gagal memproses berkas unggahan %s", nama)
-        st.error(f"❌ {PESAN_TAK_TERDUGA}")
+        st.error(PESAN_TAK_TERDUGA)
         return
     with get_db() as db:
         kembar = cari_unggahan_kembar(db, tenant_id, isi)
@@ -46,7 +47,7 @@ def _simpan(isi: bytes, nama: str, tenant_id: str, user: dict, pemetaan=None, be
                        if kembar is not None else None)
         res, msg = simpan_upload(db, tenant_id, user["id"], isi, nama, hasil_siap=hasil)
         if not res:
-            st.error(f"❌ {msg}")
+            st.error(msg)
             return
         if pemetaan:
             simpan_pemetaan(db, tenant_id, user["id"], kolom or [], pemetaan)
@@ -86,11 +87,11 @@ def _tampilkan_duplikat(tenant_id: str, user: dict, terakhir: dict) -> None:
     lap = terakhir["kualitas"]
     if terakhir.get("kembar"):
         k = terakhir["kembar"]
-        st.warning(f"⚠️ Berkas ini identik byte demi byte dengan unggahan '{k['nama']}' ({k['waktu']}). "
+        st.warning(f"Berkas ini identik byte demi byte dengan unggahan '{k['nama']}' ({k['waktu']}). "
                    "Kemungkinan unggahan ganda; hapus salah satunya di Riwayat bila tidak disengaja.")
     if lap.get("kolom_id_transaksi"):
         if lap.get("id_berbagi"):
-            st.warning(f"⚠️ {lap['id_berbagi']} baris berbagi ID transaksi yang sama tetapi isinya berbeda "
+            st.warning(f"{lap['id_berbagi']} baris berbagi ID transaksi yang sama tetapi isinya berbeda "
                        "(mis. satu kwitansi untuk beberapa pos); semuanya dipertahankan.")
             st.caption("Bawaan: semua baris dipertahankan agar donasi sah tidak hilang. Pilih tombol di bawah HANYA "
                        "bila di lembaga Anda satu nomor bukti PASTI satu transaksi; baris ber-ID sama selain yang "
@@ -100,19 +101,19 @@ def _tampilkan_duplikat(tenant_id: str, user: dict, terakhir: dict) -> None:
         elif lap.get("id_transaksi_unik"):
             st.info("ID transaksi dianggap unik untuk berkas dengan susunan kolom ini (pilihan lembaga): baris "
                     "ber-ID sama dibuang.")
-            if st.button("↩️ Pertahankan baris ber-ID sama", key="btn_id_tidak_unik"):
+            if st.button("Pertahankan baris ber-ID sama", key="btn_id_tidak_unik"):
                 _atur_duplikat(tenant_id, user, terakhir, "id_transaksi_unik", False)
     if lap.get("identik_dipertahankan"):
-        st.warning(f"⚠️ {lap['identik_dipertahankan']} baris identik dipertahankan karena tidak ada ID transaksi; "
+        st.warning(f"{lap['identik_dipertahankan']} baris identik dipertahankan karena tidak ada ID transaksi; "
                    "periksa apakah ada unggahan ganda.")
         st.caption("Dua donasi yang sama pada hari yang sama bisa saja sah. Buang hanya bila Anda yakin baris "
                    "itu terunggah dua kali. Pilihan ini disimpan bersama pemetaan kolom lembaga.")
-        if st.button(f"🧹 Buang {lap.get('salinan_identik', 0)} baris duplikat persis (unggahan ganda)",
+        if st.button(f"Buang {lap.get('salinan_identik', 0)} baris duplikat persis",
                      key="btn_buang_duplikat"):
             _atur_duplikat(tenant_id, user, terakhir, "buang_duplikat_persis", True)
     elif lap.get("buang_duplikat_persis"):
         st.info("Duplikat persis dibuang untuk berkas dengan susunan kolom ini (pilihan lembaga).")
-        if st.button("↩️ Pertahankan baris identik", key="btn_pertahankan_duplikat"):
+        if st.button("Pertahankan baris identik", key="btn_pertahankan_duplikat"):
             _atur_duplikat(tenant_id, user, terakhir, "buang_duplikat_persis", False)
 
 
@@ -124,11 +125,11 @@ def _proses_unggahan(isi: bytes, nama: str, tenant_id: str, user: dict) -> None:
     try:
         periksa = periksa_berkas(isi, nama, lembaga)
     except DataFileError as e:
-        st.error(f"❌ {e}")
+        st.error(str(e))
         return
     except Exception:
         logger.exception("Gagal membaca berkas unggahan %s", nama)
-        st.error(f"❌ {PESAN_TAK_TERDUGA}")
+        st.error(PESAN_TAK_TERDUGA)
         return
     if periksa.perlu_wizard:
         st.session_state[KUNCI_TERTUNDA] = {"isi": isi, "nama": nama, "periksa": periksa}
@@ -139,7 +140,7 @@ def _proses_unggahan(isi: bytes, nama: str, tenant_id: str, user: dict) -> None:
 def _wizard(tenant_id: str, user: dict) -> None:
     t = st.session_state[KUNCI_TERTUNDA]
     p = t["periksa"]
-    st.markdown("### 🧭 Pemetaan Kolom")
+    judul_bagian("Cocokkan kolom berkas")
     st.warning(f"Kolom pada berkas **{t['nama']}** tidak dapat dipastikan otomatis. "
                + " ".join(p.deteksi.alasan) + " Pilih kolom yang sesuai, lalu simpan.")
     st.caption("Pratinjau 5 baris pertama (judul kolom sesuai berkas):")
@@ -154,7 +155,7 @@ def _wizard(tenant_id: str, user: dict) -> None:
                                            key=f"wiz_{p.tanda[:10]}_{bidang}")
     c1, c2 = st.columns([1, 1])
     with c1:
-        if st.button("Simpan Pemetaan & Proses", type="primary", key="wiz_simpan"):
+        if st.button("Simpan pemetaan dan proses", type="primary", key="wiz_simpan"):
             pem = {b: (k if k != TIDAK_ADA else None) for b, k in pilihan.items()}
             _simpan(t["isi"], t["nama"], tenant_id, user, pemetaan=pem, berkas=p.berkas, kolom=p.kolom)
     with c2:
@@ -164,7 +165,7 @@ def _wizard(tenant_id: str, user: dict) -> None:
 
 
 def show():
-    st.title("📁 Pengelolaan Data Transaksi ZIS")
+    judul_halaman("Unggah berkas", "Simpan laporan transaksi zakat, infak, dan sedekah. Setiap berkas dibersihkan otomatis sebelum dianalisis.")
     tenant_id = get_tenant_id()
     user = get_current_user()
     
@@ -176,7 +177,7 @@ def show():
         stats = get_tenant_stats(db, tenant_id)
         
     # 1. Info Kuota & Kapasitas
-    st.markdown("### 📊 Status Kapasitas Penyimpanan")
+    judul_bagian("Kapasitas paket")
     col1, col2, col3 = st.columns(3)
     storage_mb = stats.get("storage_mb", 0)
     max_storage = stats.get("max_storage_mb", 100)
@@ -185,32 +186,30 @@ def show():
     paket = stats.get("paket", "basic").upper()
     
     with col1:
-        st.metric("Paket Langganan", paket)
+        st.metric("Paket", paket.capitalize())
     with col2:
-        st.metric("Penyimpanan", f"{storage_mb} / {max_storage} MB")
+        st.metric("Penyimpanan", f"{ukuran_mb(storage_mb)} dari {ukuran_mb(max_storage)}")
         pct_storage = min(1.0, storage_mb / max_storage) if max_storage > 0 else 0
         st.progress(pct_storage)
     with col3:
-        st.metric("Jumlah Berkas", f"{upload_count} / {max_uploads} file")
+        st.metric("Jumlah berkas", f"{upload_count} dari {max_uploads}")
         pct_upload = min(1.0, upload_count / max_uploads) if max_uploads > 0 else 0
         st.progress(pct_upload)
-        
-    st.divider()
 
     # 2. Form Unggah File Baru (hanya admin/staf)
     if has_permission("staf"):
-        st.markdown("### 📤 Unggah File Baru")
+        judul_bagian("Berkas baru")
         col_up, col_helper = st.columns([2, 1])
         
         with col_up:
             uploaded_file = st.file_uploader(
-                "Pilih berkas Excel (.xlsx, .xls) atau CSV:",
+                "Pilih berkas Excel (.xlsx, .xls) atau CSV",
                 type=["xlsx", "xls", "csv"],
-                help="Ukuran file maksimal sesuai paket (maks 50MB)"
+                help="Ukuran maksimal 50 MB, sesuai batas paket."
             )
             
             if uploaded_file is not None:
-                if st.button("Simpan dan Proses Berkas", type="primary", key="btn_proses_unggah"):
+                if st.button("Simpan dan proses", type="primary", key="btn_proses_unggah"):
                     _proses_unggahan(uploaded_file.getvalue(), uploaded_file.name, tenant_id, user)
 
             if st.session_state.get(KUNCI_TERTUNDA):
@@ -218,15 +217,16 @@ def show():
 
             terakhir = st.session_state.get(KUNCI_KUALITAS)
             if terakhir:
-                st.success(f"✅ {terakhir['nama']}: {terakhir['pesan']}")
+                st.success(f"{terakhir['nama']}: {terakhir['pesan']}")
                 _tampilkan_duplikat(tenant_id, user, terakhir)
-                tampilkan_kualitas(terakhir["kualitas"], "📋 Laporan Kualitas Data berkas terakhir", terbuka=True)
+                tampilkan_kualitas(terakhir["kualitas"], "Laporan kualitas data berkas terakhir", terbuka=True)
 
         with col_helper:
-            st.markdown("**Bantuan & Data Uji:**")
+            st.markdown("**Belum punya berkas?**")
+            st.caption("Coba dengan data contoh, atau pakai template agar kolomnya langsung sesuai.")
             
             # Tombol data contoh sintetis
-            if st.button("🎲 Muat Data Contoh Sintetis"):
+            if st.button("Muat data contoh", icon=":material/science:"):
                 with st.spinner("Membuat 2.000 transaksi sintetis realistis..."):
                     df_h, df_s = generate_sample_data(2000, 500)
                     out_buffer = io.BytesIO()
@@ -237,55 +237,56 @@ def show():
                     with get_db() as db:
                         res, msg = simpan_upload(db, tenant_id, user["id"], out_buffer.getvalue(), "data_contoh_zis_3tahun.xlsx")
                         if res:
-                            st.success("✅ Data contoh sintetis berhasil dimuat!")
+                            st.success("Data contoh berhasil dimuat.")
                             st.rerun()
                         else:
-                            st.error(f"❌ {msg}")
+                            st.error(msg)
                             
             # Download template
             sample_tmpl = Path("data/template/template_zakat.xlsx")
             if sample_tmpl.exists():
                 with open(sample_tmpl, "rb") as f:
                     st.download_button(
-                        "📥 Unduh Template Excel",
+                        "Unduh template Excel",
                         data=f.read(),
                         file_name="template_zis.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
     else:
-        st.info("ℹ️ Peran Anda adalah Pembaca. Anda dapat melihat riwayat dan analitik, namun tidak dapat mengunggah berkas baru.")
+        st.info("Peran Anda adalah Pembaca. Anda dapat melihat riwayat dan analitik, namun tidak dapat mengunggah berkas baru.")
 
     st.divider()
 
     # 3. Riwayat Unggahan
-    st.markdown("### 📋 Riwayat Berkas Tersimpan")
+    judul_bagian("Riwayat berkas")
     with get_db() as db:
         files = get_uploads(db, tenant_id)
         
     if not files:
-        st.info("Belum ada berkas transaksi yang diunggah. Silakan unggah berkas atau gunakan data contoh di atas.")
+        st.info("Belum ada berkas. Unggah berkas di atas atau muat data contoh.")
         return
 
+    from html import escape
     for item in files:
-        with st.container():
-            c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
-            with c1:
-                st.markdown(f"**📄 {item.nama_file_asli}**")
-                st.caption(f"Diunggah: {item.created_at.strftime('%d/%m/%Y %H:%M')} | Ukuran: {round(item.ukuran_bytes/1024, 1)} KB")
-            with c2:
-                status_color = "🟢 Siap" if item.status == "siap" else ("🟡 Proses" if item.status == "processing" else "🔴 Error")
-                st.write(status_color)
-            with c3:
-                if st.button("📊 Analisis", key=f"btn_anl_{item.id}", type="primary"):
-                    st.session_state["selected_upload_id"] = item.id
-                    st.session_state["page"] = "analisis"
-                    st.rerun()
-            with c4:
-                if has_permission("admin"):
-                    if st.button("🗑️ Hapus", key=f"btn_del_{item.id}"):
-                        with get_db() as db:
-                            if hapus_upload(db, item.id, tenant_id, user["id"]):
-                                st.success("Berkas dihapus.")
-                                st.rerun()
-            st.divider()
-
+        kelas, teks = {"siap": ("siap", "Siap"), "processing": ("proses", "Diproses")}.get(item.status, ("galat", "Bermasalah"))
+        c1, c2, c3, c4 = st.columns([4, 1.2, 1.5, 1.2], vertical_alignment="center")
+        with c1:
+            st.markdown(
+                f'<div class="zi-baris"><b>{escape(item.nama_file_asli)}</b><br><span class="zi-meta">'
+                f'{item.created_at.strftime("%d/%m/%Y %H:%M")} · {round(item.ukuran_bytes/1024, 1)} KB</span></div>',
+                unsafe_allow_html=True)
+        with c2:
+            st.markdown(f'<span class="zi-status {kelas}">{teks}</span>', unsafe_allow_html=True)
+        with c3:
+            if st.button("Buka analisis", key=f"btn_anl_{item.id}", type="primary", use_container_width=True):
+                st.session_state["selected_upload_id"] = item.id
+                st.session_state["page"] = "analisis"
+                st.rerun()
+        with c4:
+            if has_permission("admin"):
+                if st.button("Hapus", key=f"btn_del_{item.id}", use_container_width=True):
+                    with get_db() as db:
+                        if hapus_upload(db, item.id, tenant_id, user["id"]):
+                            st.success("Berkas dihapus.")
+                            st.rerun()
+        st.divider()

@@ -5,16 +5,17 @@ data & penyimpanan, kesiapan email, dan diagnosis IP (untuk memastikan PROXY_TEP
 Tidak menampilkan nilai rahasia, host, nama pengguna DB, atau data lembaga.
 """
 import streamlit as st
+from src.components.tema import kepala_publik
 
 from src.services.kesehatan import status_kesehatan
 
 
 def show():
-    st.title("🩺 Status Layanan")
+    kepala_publik("Status layanan")
     hasil = status_kesehatan()
-    ikon = {True: "✅", False: "❌", None: "➖"}
+    ikon = {True: "Baik", False: "Bermasalah", None: "Tidak diatur"}
     for nama, (ok, ket) in hasil["periksa"].items():
-        st.write(f"{ikon[ok]} **{nama}**: {ket}")
+        st.write(f"**{nama}**: {ikon[ok]}. {ket}")
     st.caption(f"Versi {hasil['versi']} | lingkungan {hasil['lingkungan']}")
     with st.expander("Diagnosis IP (untuk admin platform setelah deploy)"):
         st.write(f"IP Anda menurut aplikasi: `{hasil['ip']['terdeteksi']}`")

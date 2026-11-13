@@ -1,10 +1,11 @@
 """Halaman profil pengguna - Zakat Insight."""
 import re
 import streamlit as st
+from src.components.tema import judul_halaman
 
 
 def show():
-    st.title("👤 Profil Saya")
+    judul_halaman("Profil akun", "Kelola nama dan kata sandi Anda.")
 
     # Ambil info user dari session
     try:
@@ -23,7 +24,7 @@ def show():
         return
 
     # --- Informasi Akun ---
-    st.subheader("ℹ️ Informasi Akun")
+    st.subheader("Informasi akun")
     col1, col2 = st.columns(2)
     with col1:
         st.markdown(f"**Nama Lengkap:** {user.get('nama_lengkap', '-')}")
@@ -32,12 +33,12 @@ def show():
     with col2:
         st.markdown(f"**Lembaga:** {user.get('nama_lembaga', '-')}")
         st.markdown(f"**Bergabung Sejak:** {user.get('created_at', '-')}")
-        st.markdown(f"**Status:** {'✅ Aktif' if user.get('is_active', True) else '❌ Nonaktif'}")
+        st.markdown(f"**Status:** {'Aktif' if user.get('is_active', True) else 'Nonaktif'}")
 
     st.divider()
 
     # --- Ubah Nama Lengkap ---
-    st.subheader("✏️ Ubah Nama Lengkap")
+    st.subheader("Ubah nama")
     with st.form("form_ubah_nama"):
         nama_baru = st.text_input(
             "Nama Lengkap Baru", value=user.get("nama_lengkap", "")
@@ -57,7 +58,7 @@ def show():
                     success = update_user_name(db, user["id"], nama_baru.strip())
                 if success:
                     update_session_user({"nama_lengkap": nama_baru.strip()})
-                    st.success("✅ Nama berhasil diperbarui.")
+                    st.success("Nama berhasil diperbarui.")
                 else:
                     st.error("Gagal memperbarui nama. Coba lagi.")
             except ImportError as e:
@@ -66,7 +67,7 @@ def show():
     st.divider()
 
     # --- Ubah Kata Sandi ---
-    st.subheader("🔒 Ubah Kata Sandi")
+    st.subheader("Ubah kata sandi")
     with st.form("form_ubah_password"):
         password_lama = st.text_input("Kata Sandi Saat Ini *", type="password")
         password_baru = st.text_input(
@@ -111,10 +112,10 @@ def show():
                     from src.auth.session import update_session_user
                     with get_db() as db:
                         update_session_user({"access_token": token_akses_baru(db, user["id"])})
-                    st.success("✅ Kata sandi berhasil diubah. Sesi di perangkat lain telah diakhiri.")
+                    st.success("Kata sandi berhasil diubah. Sesi di perangkat lain telah diakhiri.")
                 else:
                     st.error(
-                        "❌ Kata sandi saat ini tidak benar. Periksa kembali dan coba lagi."
+                        "Kata sandi saat ini tidak benar. Periksa kembali dan coba lagi."
                     )
             except ImportError as e:
                 st.error("Sistem sedang dalam pemeliharaan.")
@@ -122,9 +123,9 @@ def show():
     st.divider()
 
     # --- Sesi Aktif ---
-    st.subheader("🖥️ Sesi Aktif")
+    st.subheader("Sesi aktif")
     st.info(
-        "ℹ️ Sesi aktif saat ini tercatat dari session state browser Anda. "
+        "Sesi aktif saat ini tercatat dari session state browser Anda. "
         "Logout untuk mengakhiri sesi."
     )
     col_a, col_b = st.columns(2)

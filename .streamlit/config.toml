@@ -19,3 +19,23 @@ toolbarMode = "viewer"
 [browser]
 # Matikan telemetri penggunaan ke pihak ketiga
 gatherUsageStats = false
+
+[theme]
+base = "light"
+primaryColor = "#14705E"
+backgroundColor = "#F5F6F3"
+secondaryBackgroundColor = "#EBEEEA"
+textColor = "#1A2421"
+font = "sans-serif"
+baseRadius = "small"
+redColor = "#B3382C"
+orangeColor = "#B7791F"
+yellowColor = "#B7791F"
+greenColor = "#14705E"
+blueColor = "#3B6A8C"
+
+[theme.sidebar]
+backgroundColor = "#12332E"
+secondaryBackgroundColor = "#1B4A42"
+textColor = "#E6EFEB"
+primaryColor = "#E3A33B"

@@ -1,9 +1,10 @@
 """Halaman penerimaan undangan anggota tim - Zakat Insight."""
 import streamlit as st
+from src.components.tema import kepala_publik
 
 
 def show():
-    st.title("✉️ Terima Undangan")
+    kepala_publik("Terima undangan")
     token = st.query_params.get("token", "")
     if not token:
         st.error("Tautan undangan tidak valid.")
@@ -23,10 +24,10 @@ def show():
         with get_db() as db:
             ok, pesan = terima_undangan(db, token, nama, sandi)
         if ok:
-            st.success(f"✅ {pesan} Silakan masuk.")
+            st.success(f"{pesan} Silakan masuk.")
             if st.button("Masuk", type="primary"):
                 st.query_params.clear()
                 st.session_state["page"] = "login"
                 st.rerun()
         else:
-            st.error(f"❌ {pesan}")
+            st.error(f"{pesan}")

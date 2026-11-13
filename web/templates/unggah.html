@@ -1,0 +1,26 @@
+{% extends "dasar.html" %}
+{% block judul %}Unggah berkas | Zakat Insight{% endblock %}
+{% block isi %}
+<section class="lembar lembar--sempit">
+  <h1>Unggah rekap penghimpunan</h1>
+  <p class="pengantar">Excel (.xlsx) atau CSV, paling besar {{ maks_mb }} MB. Kolom tanggal, nominal, dan nama atau ID muzaki dikenali otomatis dari judul kolom yang lazim.</p>
+  {% if galat %}
+  <div class="pesan pesan--galat" role="alert" id="galat-unggah"><p><strong>Berkas belum tersimpan.</strong> {{ galat }}</p>
+    <p>Bila judul kolom berkas Anda tidak dikenali, pemetaan kolom manual masih tersedia di aplikasi lama.</p></div>
+  {% endif %}
+  <form class="form" method="post" action="/unggah" enctype="multipart/form-data">
+    <input type="hidden" name="csrf" value="{{ pengguna.csrf }}">
+    <label for="berkas">Berkas</label>
+    <input id="berkas" name="berkas" type="file" accept=".xlsx,.xls,.csv" required {% if galat %}aria-describedby="galat-unggah"{% endif %}>
+    <button class="tombol" type="submit">Unggah dan analisis</button>
+  </form>
+  <p class="catatan">Terpakai {{ stats.upload_count | bilangan }} dari {{ stats.max_uploads | bilangan }} berkas dan {{ stats.storage_mb | desimal }} dari {{ stats.max_storage_mb | bilangan }} MB pada paket {{ (stats.paket or "basic") | capitalize }}.</p>
+
+  <h2 class="subjudul">Belum punya berkas?</h2>
+  <p>Muat 2.000 transaksi contoh (sintetis, tiga tahun, tanpa data muzaki asli) untuk mencoba layar analisis.</p>
+  <form method="post" action="/unggah/contoh">
+    <input type="hidden" name="csrf" value="{{ pengguna.csrf }}">
+    <button class="tombol tombol--garis" type="submit">Muat data contoh</button>
+  </form>
+</section>
+{% endblock %}

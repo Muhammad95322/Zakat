@@ -1,0 +1,59 @@
+{% extends "dasar.html" %}
+{% block judul %}Masuk | Zakat Insight{% endblock %}
+{% block kelas_body %}latar-masuk{% endblock %}
+{% block kelas_main %}masuk{% endblock %}
+{% block isi %}
+<section class="masuk__form" aria-labelledby="judul-masuk">
+  <p class="merek merek--besar">Zakat Insight</p>
+  <h1 id="judul-masuk">Masuk ke akun lembaga Anda</h1>
+
+  {% if info %}<p class="pesan pesan--info" role="status">{{ info }}</p>{% endif %}
+  {% if galat %}
+  <div class="pesan pesan--galat" role="alert" id="galat-masuk">
+    <p><strong>{{ galat }}</strong></p>
+    {% if "tidak cocok" in galat %}
+    <p>Periksa huruf besar-kecil dan tombol Caps Lock. Setelah {{ maks_gagal }} kali salah berturut-turut, akun dikunci
+       {{ menit_kunci }} menit demi keamanan, dan selama itu sandi yang benar pun ditolak dengan pesan yang sama.
+       Bila Anda yakin sandinya benar, tunggu {{ menit_kunci }} menit lalu coba lagi.</p>
+    <p>Akun yang belum diverifikasi lewat email juga belum bisa masuk.</p>
+    {% elif "Terlalu banyak" in galat %}
+    <p>Pembatasan ini melindungi akun dari tebakan kata sandi otomatis. Anda tidak perlu menghubungi siapa pun; tunggu saja.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <form method="post" action="/masuk" class="form" novalidate>
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" autocomplete="username" inputmode="email" required
+           value="{{ email }}" {% if galat %}aria-describedby="galat-masuk"{% else %}autofocus{% endif %}>
+    <label for="sandi">Kata sandi</label>
+    <input id="sandi" name="sandi" type="password" autocomplete="current-password" required
+           {% if galat %}autofocus{% endif %}>
+    <button class="tombol tombol--penuh" type="submit">Masuk</button>
+  </form>
+  <p class="catatan">Lupa kata sandi atau ingin mendaftarkan lembaga baru? Fitur itu <a href="/segera-hadir">segera hadir</a> di versi web;
+    sementara ini gunakan aplikasi lama.</p>
+</section>
+
+<aside class="masuk__kalender" aria-label="Ramadan berikutnya">
+  {% if ramadan %}
+  {% if ramadan.sedang %}
+  <p class="hitung"><span class="hitung__angka">Ramadan</span> sedang berjalan</p>
+  <p class="hitung__ket">{{ ramadan.tahun_h }} H, perkiraan sampai {{ ramadan.syawal | tanggal }}. Puncak zakat fitrah biasanya di sepuluh hari terakhir.</p>
+  {% else %}
+  <p class="hitung"><span class="hitung__angka">{{ ramadan.hari_lagi | bilangan }}</span> hari lagi</p>
+  <p class="hitung__ket">menuju Ramadan {{ ramadan.tahun_h }} H, perkiraan mulai {{ ramadan.mulai | tanggal }}. Lonjakan penghimpunan biasanya mulai terasa dua pekan sebelumnya.</p>
+  {% endif %}
+  <ol class="pita" aria-label="Dua belas bulan ke depan">
+    {% for b in pita %}
+    <li class="{% if b.ramadan %}pita__ramadan{% endif %}">
+      <span class="pita__bulan">{{ b.label }}</span>{% if b.awal_tahun %}<span class="pita__tahun">{{ b.tahun }}</span>{% endif %}
+      {% if b.ramadan %}<span class="sr">, ada hari Ramadan</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  <p class="hitung__sumber">Tanggal Ramadan adalah perkiraan hisab dan bisa bergeser satu sampai dua hari dari penetapan resmi.</p>
+  {% endif %}
+</aside>
+{% endblock %}

@@ -1,0 +1,19 @@
+{% extends "dasar.html" %}
+{% block judul %}Analisis | Zakat Insight{% endblock %}
+{% block isi %}
+<section class="lembar lembar--sempit kosong">
+  <h1>Belum ada berkas untuk dianalisis</h1>
+  {% if boleh_unggah %}
+  <p>Unggah rekap penghimpunan (Excel atau CSV) untuk melihat berapa yang terkumpul, trennya, asal dana, dan perkiraan 12 bulan ke depan. Belum punya berkas yang rapi? Muat data contoh untuk mencoba dulu.</p>
+  <div class="aksi">
+    <a class="tombol" href="/unggah">Unggah berkas</a>
+    <form method="post" action="/unggah/contoh">
+      <input type="hidden" name="csrf" value="{{ pengguna.csrf }}">
+      <button class="tombol tombol--garis" type="submit">Muat data contoh</button>
+    </form>
+  </div>
+  {% else %}
+  <p>Peran Anda pembaca, jadi tidak bisa mengunggah. Minta staf atau admin lembaga mengunggah rekap penghimpunan; layar ini akan terisi setelahnya.</p>
+  {% endif %}
+</section>
+{% endblock %}

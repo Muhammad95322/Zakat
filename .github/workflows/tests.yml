@@ -95,8 +95,8 @@ jobs:
       - name: pip-audit (requirements + constraints)
         run: pip-audit -r requirements.txt -r constraints.txt
 
-      - name: bandit (src/)
-        run: bandit -r src/
+      - name: bandit (src/ dan web/)
+        run: bandit -r src/ web/
 
       - name: Tidak ada berkas data donatur terlacak git (repo publik)
         run: python scripts/cek_berkas_data.py

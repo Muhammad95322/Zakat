@@ -9,6 +9,7 @@ from src.models.audit_log import AuditLog
 from src.models.invitation import Invitation
 from src.models.pemetaan_kolom import PemetaanKolom
 from src.models.batas_laju import BatasLaju
+from src.models.sesi_web import SesiWeb
 
 __all__ = [
     "Tenant",
@@ -20,4 +21,5 @@ __all__ = [
     "Invitation",
     "PemetaanKolom",
     "BatasLaju",
+    "SesiWeb",
 ]

@@ -533,3 +533,17 @@ Asumsi yang diambil selama perbaikan rilis (silakan koreksi bila tidak sesuai ke
 ---
 
 *Dikembangkan dengan ❤️ untuk transparansi dan tata kelola digital filantropi Islam Indonesia.*
+
+## Frontend web baru (pratinjau, FastAPI)
+
+Berjalan berdampingan dengan aplikasi Streamlit, memakai basis data, variabel lingkungan
+(`DATABASE_URL`, `APP_ENV`, `UPLOAD_DIR`, dst.), dan akun yang sama (mis. dari `scripts/seed_dev.py`).
+
+```bash
+pip install -r requirements.txt -c constraints.txt
+uvicorn web.main:app --reload --port 8000
+```
+
+Tahap ini hanya: masuk, beranda, analisis satu berkas, unggah sederhana / data contoh. Halaman
+lain terdaftar di `/segera-hadir`. Rencana desain: `docs/RENCANA_DESAIN_WEB.md`. Saat mulai,
+aplikasi web menjalankan migrasi yang sama dengan `init_db()` (termasuk `0005`, tabel sesi web).

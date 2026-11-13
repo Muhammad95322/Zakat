@@ -1,0 +1,170 @@
+{% extends "dasar.html" %}
+{% block judul %}Analisis {{ upload.nama_file_asli }} | Zakat Insight{% endblock %}
+{% block isi %}
+<div class="laporan">
+  <div class="kendali">
+    <form class="kendali__berkas" method="get" action="/analisis" data-kirim-otomatis>
+      <label for="berkas">Berkas</label>
+      <select id="berkas" name="berkas">
+        {% for b in daftar %}
+        <option value="{{ b.id }}" {% if b.id == upload.id %}selected{% endif %}>{{ b.nama_file_asli }} ({{ b.created_at | tanggal_pendek }})</option>
+        {% endfor %}
+      </select>
+      <button class="tombol tombol--tipis tanpa-js" type="submit">Buka</button>
+    </form>
+    {% if hasil %}
+    <form class="kendali__saring" method="get" action="/analisis/{{ upload.id }}" data-kirim-otomatis>
+      {% for f in hasil.filter_opsi %}
+      <div class="saring">
+        <label for="f-{{ f.param }}">{{ f.judul }}</label>
+        <select id="f-{{ f.param }}" name="{{ f.param }}" {% if not f.pilihan %}disabled{% endif %}>
+          <option value="">Semua</option>
+          {% for p in f.pilihan %}<option value="{{ p }}" {% if p == f.nilai %}selected{% endif %}>{{ p }}</option>{% endfor %}
+        </select>
+      </div>
+      {% endfor %}
+      <div class="saring saring--aksi">
+        <button class="tombol tombol--tipis tanpa-js" type="submit">Terapkan</button>
+        {% if query_aktif %}<a class="tautan-tipis" href="{{ tautan_reset }}">Hapus filter</a>{% endif %}
+      </div>
+    </form>
+    {% endif %}
+  </div>
+
+  {% if galat %}
+  <section class="lembar kosong kosong--galat" role="alert">
+    <h1>{{ upload.nama_file_asli }}</h1>
+    <p><strong>{{ galat }}</strong></p>
+    <p>Pilih berkas lain di atas{% if boleh_unggah %}, atau <a href="/unggah">unggah ulang</a> berkas yang sudah diperbaiki{% endif %}.</p>
+  </section>
+  {% elif hasil.kosong %}
+  <section class="lembar kosong">
+    <h1>Tidak ada transaksi untuk pilihan ini</h1>
+    <p>Kombinasi filter yang dipilih tidak cocok dengan satu transaksi pun di berkas ini. <a href="{{ tautan_reset }}">Hapus filter</a> atau ganti salah satu pilihan.</p>
+  </section>
+  {% else %}
+  {% set s = hasil.stats %}
+  <article class="lembar">
+    <section class="bagian bagian--pembuka" aria-labelledby="judul-terkumpul">
+      <div class="bagian__isi">
+        <h1 id="judul-terkumpul" class="sr">Ringkasan penghimpunan</h1>
+        <p class="angka-besar" title="{{ s.total_dana | rupiah }}">{{ s.total_dana | rupiah_singkat }}</p>
+        <p class="kalimat">terkumpul dari {{ s.total_transaksi | bilangan }} transaksi oleh {{ s.muzaki_unik | bilangan }} muzaki,
+          {{ hasil.periode }}{% for f in hasil.filter_opsi if f.nilai %}{% if loop.first %}, untuk{% endif %} {{ f.nilai }}{% if not loop.last %},{% endif %}{% endfor %}.</p>
+        <p class="persis">Tepatnya {{ s.total_dana | rupiah }}</p>
+        {% set p = hasil.perubahan %}
+        {% if p %}
+        <p class="perubahan perubahan--{{ p.arah }}">
+          {% if p.arah == "naik" %}<span aria-hidden="true">&#9650;</span>{% elif p.arah == "turun" %}<span aria-hidden="true">&#9660;</span>{% endif %}
+          {{ p.n_bulan }} bulan terakhir ({{ p.awal }} sampai {{ p.akhir }}) terkumpul {{ p.sekarang | rupiah_singkat }},
+          {% if p.arah == "baru" %}sedangkan {{ p.n_bulan }} bulan sebelumnya belum ada transaksi.
+          {% elif p.arah == "tetap" %}hampir sama dengan {{ p.n_bulan }} bulan sebelumnya ({{ p.sebelumnya | rupiah_singkat }}).
+          {% else %}<strong>{{ p.arah }} {{ p.persen | persen }}</strong> dari {{ p.n_bulan }} bulan sebelumnya ({{ p.sebelumnya | rupiah_singkat }}).{% endif %}
+        </p>
+        {% endif %}
+        <dl class="neraca">
+          <div><dt>Rata-rata per transaksi</dt><dd>{{ s.rata_rata | rupiah_singkat }}</dd></div>
+          <div><dt>Median</dt><dd>{{ s.median | rupiah_singkat }}</dd></div>
+          <div><dt>Transaksi terbesar</dt><dd>{{ s.terbesar | rupiah_singkat }}</dd></div>
+        </dl>
+      </div>
+      <aside class="bagian__catatan catatan-pinggir" aria-label="Catatan data">
+        {% set k = hasil.kualitas %}
+        <h2>Catatan data</h2>
+        {% if k.baris_dibaca is defined %}
+        <p>{{ k.baris_dibaca | bilangan }} baris dibaca, {{ k.baris_valid | bilangan }} dipakai{% if k.baris_dibuang %}, {{ k.baris_dibuang | bilangan }} dibuang karena tidak lengkap atau ganda{% endif %}.</p>
+        {% endif %}
+        {% if hasil.peringatan_data %}
+        <ul>
+          {% for w in hasil.peringatan_data[:2] %}<li>{{ w }}</li>{% endfor %}
+        </ul>
+        {% if hasil.peringatan_data|length > 2 %}
+        <details><summary>{{ hasil.peringatan_data|length - 2 }} catatan lain</summary>
+          <ul>{% for w in hasil.peringatan_data[2:] %}<li>{{ w }}</li>{% endfor %}</ul>
+        </details>
+        {% endif %}
+        {% else %}
+        <p>Tidak ada masalah data yang perlu diperhatikan.</p>
+        {% endif %}
+      </aside>
+    </section>
+
+    <section class="bagian" aria-labelledby="judul-tren">
+      <div class="bagian__isi">
+        <h2 id="judul-tren">Tren bulanan</h2>
+        {% if hasil.figur_tren %}
+        <div class="grafik" data-figur='{{ hasil.figur_tren | tojson }}' role="img"
+             aria-label="Grafik garis penghimpunan per bulan, {{ hasil.periode }}. {{ hasil.catatan_tren }}"></div>
+        <noscript><p class="catatan">Grafik membutuhkan JavaScript.</p></noscript>
+        {% else %}
+        <p class="catatan">Kolom tanggal tidak tersedia, jadi tren bulanan tidak bisa digambar.</p>
+        {% endif %}
+      </div>
+      <aside class="bagian__catatan catatan-pinggir">
+        <p><span class="kunci-ramadan" aria-hidden="true"></span>Pita kuning (berlabel R di layar sempit) menandai Ramadan (perkiraan hisab, bisa bergeser satu sampai dua hari).</p>
+        {% if hasil.catatan_tren %}<p>{{ hasil.catatan_tren }}</p>{% endif %}
+      </aside>
+    </section>
+
+    <section class="bagian" aria-labelledby="judul-asal">
+      <div class="bagian__isi bagian__isi--lebar">
+        <h2 id="judul-asal">Dari mana dana datang</h2>
+        <div class="rincian-kisi">
+          {% for r in hasil.rincian %}
+          <table class="rincian">
+            <caption>{{ r.judul }}</caption>
+            <thead><tr><th scope="col">Nama</th><th scope="col" class="angka">Terkumpul</th><th scope="col" class="angka">Porsi</th></tr></thead>
+            <tbody>
+              {% for b in r.baris %}
+              <tr class="{% if b.lainnya %}rincian__lainnya{% endif %}">
+                <th scope="row">{{ b.nama }}<span class="batang" style="--lebar: {{ b.lebar }}%" aria-hidden="true"></span></th>
+                <td class="angka">{{ b.total | rupiah_singkat }}</td>
+                <td class="angka">{{ b.persen | persen }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <p class="catatan">Berkas ini tidak memiliki kolom jenis dana, kanal, atau kabupaten/kota.</p>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+
+    <section class="bagian" aria-labelledby="judul-proyeksi">
+      {% set pr = hasil.proyeksi %}
+      <div class="bagian__isi">
+        <h2 id="judul-proyeksi">Perkiraan 12 bulan ke depan</h2>
+        {% if pr.ada %}
+        <p class="proyeksi-ringkas">Sekitar <strong>{{ pr.total | rupiah_singkat }}</strong> untuk {{ pr.rentang }}, bila pola sejauh ini berlanjut.</p>
+        <div class="grafik" data-figur='{{ hasil.figur_proyeksi | tojson }}' role="img"
+             aria-label="Grafik proyeksi penghimpunan {{ pr.rentang }} dengan metode {{ pr.metode }}"></div>
+        {% else %}
+        <p class="kosong">Proyeksi belum bisa dibuat: {{ pr.warning or "data bulanan terlalu sedikit" }}</p>
+        {% endif %}
+      </div>
+      <aside class="bagian__catatan catatan-pinggir catatan-pinggir--keandalan" aria-label="Keandalan proyeksi">
+        <h2>Seberapa bisa dipegang</h2>
+        {% if pr.peringatan %}
+        {% for w in pr.peringatan %}<p class="peringatan">{{ w }}</p>{% endfor %}
+        {% elif pr.ada %}
+        <p>Uji mundur tidak menemukan masalah keandalan besar. Tetap perlakukan angka ini sebagai perkiraan, bukan target.</p>
+        {% endif %}
+        {% if pr.ada %}
+        <p>Metode: {{ pr.metode }}. Rata-rata meleset pada uji mundur: {{ pr.mape_teks }}.</p>
+        {% if pr.catatan %}
+        <details><summary>Cara angka ini dihitung</summary>
+          {% for c in pr.catatan %}<p>{{ c }}</p>{% endfor %}
+        </details>
+        {% endif %}
+        {% endif %}
+      </aside>
+    </section>
+  </article>
+  {% endif %}
+</div>
+{% endblock %}
+{% block skrip %}
+{% if hasil and not hasil.kosong %}<script src="/statis/js/plotly.min.js" defer></script>{% endif %}
+<script src="/statis/js/situs.js" defer></script>
+{% endblock %}
